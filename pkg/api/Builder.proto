@@ -1,0 +1,281 @@
+syntax = "proto3";
+
+package com.apple.container.build.v1;
+option go_package = "pkg/api;api";
+
+// Builder service implements APIs for performing an image build with
+// Container image builder agent.
+//
+// To perform a build:
+//
+// 1. CreateBuild to create a new build
+// 2. StartBuild to start the build exection where client and server
+//    both have a stream for exchanging data during the build.
+//
+//    The client may send:
+//      a) signal packet to signal to the build process (e.g. SIGINT)
+//
+//      b) command packet for executing a command in the build file on the
+//      server
+//         NOTE: the server will need to switch on the command to determine the
+//         type of command to execute (e.g. RUN, ENV, etc.)
+//
+//      c) transfer build data either to or from the server
+//         - INTO direction is for sending build data to the server at specific
+//         location (e.g. COPY)
+//         - OUTOF direction is for copying build data from the server to be
+//         used in subsequent build stages
+//
+//      d) transfer image content data either to or from the server
+//         - INTO direction is for sending inherited image content data to the
+//         server's local content store
+//         - OUTOF direction is for copying successfully built OCI image from
+//         the server to the client
+//
+//    The server may send:
+//      a) stdio packet for the build progress
+//
+//      b) build error indicating unsuccessful build
+//
+//      c) command complete packet indicating a command has finished executing
+//
+//      d) handle transfer build data either to or from the client
+//
+//      e) handle transfer image content data either to or from the client
+//
+//
+//    NOTE: The build data and image content data transfer is ALWAYS initiated
+//    by the client.
+//
+//    Sequence for transferring from the client to the server:
+//      1. client send a BuildTransfer/ImageTransfer request with ID, direction
+//      of 'INTO',
+//         destination path, and first chunk of data
+//      2. server starts to receive the data and stream to a temporary file
+//      3. client continues to send all chunks of data until last chunk, which
+//      client will
+//         send with 'complete' set to true
+//      4. server continues to receive until the last chunk with 'complete' set
+//      to true,
+//         server will finish writing the last chunk and un-archive the
+//         temporary file to the destination path
+//      5. server completes the transfer by sending a last
+//      BuildTransfer/ImageTransfer with
+//         'complete' set to true
+//      6. client waits for the last BuildTransfer/ImageTransfer with 'complete'
+//      set to true
+//         before proceeding with the rest of the commands
+//
+//    Sequence for transferring from the server to the client:
+//      1. client send a BuildTransfer/ImageTransfer request with ID, direction
+//      of 'OUTOF',
+//         source path, and empty data
+//      2. server archives the data at source path, and starts to send chunks to
+//      the client
+//      3. server coninues to send all chunks until last chunk, which server
+//      will send with
+//         'complete' set to true
+//      4. client starts to receive the data and stream to a temporary file
+//      5. client continues to receive until the last chunk with 'complete' set
+//      to true,
+//         client will finish writing last chunk and un-archive the temporary
+//         file to the destination path
+//      6. client MAY choose to send one last BuildTransfer/ImageTransfer with
+//      'complete'
+//         set to true, but NOT required.
+//
+//
+//    NOTE: the client should close the send stream once it has finished
+//    receiving the build output or abadon the current build due to error.
+//    Server should keep the stream open until it receives the EOF that client
+//    has closed the stream, which the server should then close its send stream.
+service Builder {
+  // Create a build request.
+  rpc CreateBuild(CreateBuildRequest) returns (CreateBuildResponse);
+
+  // Perform the build.
+  // Executes the entire build sequence with attaching input/output
+  // to handling data exchange with the server during the build.
+  rpc PerformBuild(stream ClientStream) returns (stream ServerStream);
+
+  rpc Info(InfoRequest) returns (InfoResponse);
+}
+
+message InfoRequest {}
+
+message InfoResponse {}
+
+message CreateBuildRequest {
+  // The name of the build stage.
+  string stage_name = 1;
+
+  // The tag of the image to be created.
+  string tag = 2;
+
+  // Any additional metadata to be associated with the build.
+  map<string, string> metadata = 3;
+
+  // Additional build arguments.
+  repeated string build_args = 4;
+
+  // Enable debug logging.
+  bool debug = 5;
+}
+
+message CreateBuildResponse {
+  // A unique ID for the build.
+  string build_id = 1;
+
+  // Any additional metadata to be associated with the build.
+  map<string, string> metadata = 2;
+}
+
+message ClientStream {
+  // A unique ID for the build.
+  string build_id = 1;
+
+  // The packet type.
+  oneof packet_type {
+    Signal signal = 2;
+    Run command = 3;
+    BuildTransfer build_transfer = 4;
+    ImageTransfer image_transfer = 5;
+  }
+}
+
+message Signal {
+  // A POSIX signal to send to the build process.
+  // Can be used for cancelling builds.
+  int32 signal = 1;
+}
+
+message Run {
+  // A unique ID for the execution.
+  string id = 1;
+
+  // The type of command to execute.
+  string command = 2;
+}
+
+message RunComplete {
+  // A unique ID for the execution.
+  string id = 1;
+}
+
+enum TransferDirection {
+  INTO = 0;
+  OUTOF = 1;
+}
+
+message BuildTransfer {
+  // A unique ID for the transfer.
+  string id = 1;
+
+  // The direction for transferring data (either to the server or from the
+  // server).
+  TransferDirection direction = 2;
+
+  // The absolute path to the source from the server perspective.
+  optional string source = 3;
+
+  // The absolute path for the destination from the server perspective.
+  optional string destination = 4;
+
+  // The actual data bytes to be transferred.
+  bytes data = 5;
+
+  // Signal to indicate that the transfer of data for the request has finished.
+  bool complete = 6;
+
+  // Boolean to indicate if the content is a directory.
+  bool is_directory = 7;
+  
+  // Metadata for the transfer.
+  map<string, string> metadata = 8;
+}
+
+message ImageTransfer {
+  // A unique ID for the transfer.
+  string id = 1;
+
+  // The direction for transferring data (either to the server or from the
+  // server).
+  TransferDirection direction = 2;
+
+  // The tag for the image.
+  string tag = 3;
+
+  // The descriptor for the image content.
+  Descriptor descriptor = 4;
+
+  // The actual data bytes to be transferred.
+  bytes data = 5;
+
+  // Signal to indicate that the transfer of data for the request has finished.
+  bool complete = 6;
+
+  // Metadata for the image.
+  map<string, string> metadata = 7;
+}
+
+message ServerStream {
+  // A unique ID for the build.
+  string build_id = 1;
+
+  // The packet type.
+  oneof packet_type {
+    IO io = 2;
+    BuildError build_error = 3;
+    RunComplete command_complete = 4;
+    BuildTransfer build_transfer = 5;
+    ImageTransfer image_transfer = 6;
+  }
+}
+
+// Standard input/output.
+enum Stdio {
+  STDIN = 0;
+  STDOUT = 1;
+  STDERR = 2;
+}
+
+message IO {
+  // The type of IO.
+  Stdio type = 1;
+
+  // The IO data bytes.
+  bytes data = 2;
+}
+
+// Build error type.
+enum BuildErrorType {
+  BUILD_FAILED = 0;
+  INTERNAL = 1;
+}
+
+message BuildError {
+  // The type of build error.
+  BuildErrorType type = 1;
+
+  // Additional message for the build failure.
+  string message = 2;
+}
+
+// OCI Platform metadata.
+message Platform {
+  string architecture = 1;
+  string os = 2;
+  string os_version = 3;
+  repeated string os_features = 4;
+  string variant = 5;
+}
+
+// OCI Descriptor metadata.
+message Descriptor {
+  string media_type = 1;
+  string digest = 2;
+  int64 size = 3;
+  repeated string urls = 4;
+  map<string, string> annotations = 5;
+  optional Platform platform = 6;
+}
