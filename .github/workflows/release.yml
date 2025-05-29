@@ -1,0 +1,17 @@
+name: Container Builder Shim - release build
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  build:
+    name: Invoke build and release
+    uses: ./.github/workflows/common.yml
+    with:
+      publish: true
+      version: ${{ github.ref_name }}
+    permissions:
+      contents: read
+      packages: write

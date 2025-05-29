@@ -1,0 +1,80 @@
+name: Container Builder Shim - common jobs
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        description: "Publish the built image"
+        default: false
+      version:
+        type: string
+        description: "Version of the builder image to create"
+        default: "test"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps: 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.2'
+      - name: Checkout repository
+        uses: actions/checkout@v4 
+        with:
+          fetch-depth: 0
+      - name: Check formatting
+        run: | 
+          ./scripts/install-hawkeye.sh
+          make fmt
+          git diff
+          if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
+      - name: Check protobufs 
+        run: | 
+          make go-protos
+          if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
+      - name: Build
+        run: |
+          make build
+      - name: Test
+        run: |
+          make test
+
+  image:
+    # Nested jobs inherit permissions from parent job, so if we need to publish an image,
+    # the caller must set permissions that include packages: write.
+    runs-on: ubuntu-latest
+    needs: [build] # don't build the image if the repo doesn't build
+    steps:
+      - name: Login to GitHub container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up docker-buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Dockerfile and push image
+        if: ${{ inputs.publish }}
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/arm64
+          push: true
+          tags: ghcr.io/apple-uat/container-builder-shim/builder:${{ inputs.version }}
+      - name: Build image to tar
+        if: ${{ inputs.publish }} != true
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/arm64
+          push: false
+          tags: ghcr.io/apple-uat/container-builder-shim/builder:${{ inputs.version }}
+          outputs: type=oci,dest=container-builder-shim.tar
+      - name: Save artifacts
+        if: ${{ inputs.publish }} != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-builder-shim
+          path: container-builder-shim.tar
