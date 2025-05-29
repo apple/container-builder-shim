@@ -1,0 +1,10 @@
+[GO_STYLE]
+firstLine = '//===----------------------------------------------------------------------===//'
+endLine = "//===----------------------------------------------------------------------===//\n"
+beforeEachLine = '// '
+afterEachLine = ''
+allowBlankLines = false
+multipleLines = true
+padLines = false
+firstLineDetectionPattern = '//\s?==='
+lastLineDetectionPattern = '//\s?==='
