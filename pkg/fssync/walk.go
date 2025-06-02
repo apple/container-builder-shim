@@ -24,9 +24,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
-	"github.com/apple-uat/container-builder-shim/pkg/fileutils"
-	"github.com/apple-uat/container-builder-shim/pkg/stream"
+	"github.com/apple/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/fileutils"
+	"github.com/apple/container-builder-shim/pkg/stream"
 	"google.golang.org/grpc/metadata"
 )
 

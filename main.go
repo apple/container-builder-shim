@@ -34,8 +34,8 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
-	"github.com/apple-uat/container-builder-shim/pkg/buildkit"
-	"github.com/apple-uat/container-builder-shim/pkg/server"
+	"github.com/apple/container-builder-shim/pkg/buildkit"
+	"github.com/apple/container-builder-shim/pkg/server"
 )
 
 var (

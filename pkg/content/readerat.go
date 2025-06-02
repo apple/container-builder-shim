@@ -25,9 +25,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
-	prefetcher "github.com/apple-uat/container-builder-shim/pkg/prefetch"
-	"github.com/apple-uat/container-builder-shim/pkg/stream"
+	"github.com/apple/container-builder-shim/pkg/api"
+	prefetcher "github.com/apple/container-builder-shim/pkg/prefetch"
+	"github.com/apple/container-builder-shim/pkg/stream"
 	contentx "github.com/containerd/containerd/v2/core/content"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )

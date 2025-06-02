@@ -22,8 +22,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
-	"github.com/apple-uat/container-builder-shim/pkg/fileutils"
+	"github.com/apple/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/fileutils"
 )
 
 var _ io.ReadCloser = &File{}

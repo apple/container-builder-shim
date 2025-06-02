@@ -1,4 +1,4 @@
-module github.com/apple-uat/container-builder-shim
+module github.com/apple/container-builder-shim
 
 go 1.23.2
 

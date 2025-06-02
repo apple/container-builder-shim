@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/api"
 )
 
 func TestFileInfoTransformer_TransformIntoFileInfo(t *testing.T) {

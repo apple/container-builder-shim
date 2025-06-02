@@ -20,8 +20,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
-	"github.com/apple-uat/container-builder-shim/pkg/stream"
+	"github.com/apple/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/stream"
 	contentx "github.com/containerd/containerd/v2/core/content"
 	"github.com/google/uuid"
 )

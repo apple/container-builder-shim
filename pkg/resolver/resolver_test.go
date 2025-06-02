@@ -24,8 +24,8 @@ import (
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/opencontainers/go-digest"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
-	"github.com/apple-uat/container-builder-shim/pkg/stream"
+	"github.com/apple/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
 var RespKey = struct{}{}
