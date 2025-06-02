@@ -25,8 +25,8 @@ import (
 	"github.com/containerd/console"
 	"github.com/google/uuid"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
-	"github.com/apple-uat/container-builder-shim/pkg/stream"
+	"github.com/apple/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
 var _ console.File = &StdioProxy{}

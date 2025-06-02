@@ -20,7 +20,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/api"
 )
 
 // mockStream is an in-memory implementation of Stream

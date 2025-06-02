@@ -27,8 +27,8 @@ import (
 	contentx "github.com/containerd/containerd/v2/core/content"
 	"github.com/opencontainers/go-digest"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
-	"github.com/apple-uat/container-builder-shim/pkg/stream"
+	"github.com/apple/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
 type ctxKey struct{}

@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/sirupsen/logrus"
 
 	"golang.org/x/sync/singleflight"

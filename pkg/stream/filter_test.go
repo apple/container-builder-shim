@@ -19,7 +19,7 @@ package stream
 import (
 	"testing"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/api"
 )
 
 func TestFilterByBuildID(t *testing.T) {

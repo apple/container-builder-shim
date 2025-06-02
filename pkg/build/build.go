@@ -29,7 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 
-	"github.com/apple-uat/container-builder-shim/pkg/exporter"
+	"github.com/apple/container-builder-shim/pkg/exporter"
 )
 
 func Build(ctx context.Context, opts *BOpts) error {

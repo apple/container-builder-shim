@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/opencontainers/go-digest"
 )
 
