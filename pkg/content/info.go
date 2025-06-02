@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/api"
 	contentx "github.com/containerd/containerd/v2/core/content"
 	"github.com/opencontainers/go-digest"
 )

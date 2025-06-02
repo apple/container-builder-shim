@@ -28,11 +28,11 @@ import (
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"github.com/apple-uat/container-builder-shim/pkg/content"
-	"github.com/apple-uat/container-builder-shim/pkg/exporter"
-	"github.com/apple-uat/container-builder-shim/pkg/fssync"
-	"github.com/apple-uat/container-builder-shim/pkg/resolver"
-	"github.com/apple-uat/container-builder-shim/pkg/stdio"
+	"github.com/apple/container-builder-shim/pkg/content"
+	"github.com/apple/container-builder-shim/pkg/exporter"
+	"github.com/apple/container-builder-shim/pkg/fssync"
+	"github.com/apple/container-builder-shim/pkg/resolver"
+	"github.com/apple/container-builder-shim/pkg/stdio"
 )
 
 const (

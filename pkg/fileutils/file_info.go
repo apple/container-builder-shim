@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/tonistiigi/fsutil/types"
 )
 

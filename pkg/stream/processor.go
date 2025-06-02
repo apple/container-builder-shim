@@ -19,7 +19,7 @@ package stream
 import (
 	"context"
 
-	"github.com/apple-uat/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/api"
 )
 
 // Demultiplexer fan-outs packets belonging to the same stage
