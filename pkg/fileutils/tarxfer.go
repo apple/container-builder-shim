@@ -28,7 +28,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/apple-uat/container-builder-shim/pkg/stream"
+	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
 // Receiver streams a remote tar archive, caches it under cacheBase and calls fn

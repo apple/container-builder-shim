@@ -16,7 +16,7 @@
 
 package stream
 
-import "github.com/apple-uat/container-builder-shim/pkg/api"
+import "github.com/apple/container-builder-shim/pkg/api"
 
 type FilterFn func(*api.ClientStream) error
 type FilterByIDFn func(id string) FilterFn

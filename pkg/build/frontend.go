@@ -42,7 +42,7 @@ import (
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 
-	"github.com/apple-uat/container-builder-shim/pkg/build/utils"
+	"github.com/apple/container-builder-shim/pkg/build/utils"
 )
 
 func frontend(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
