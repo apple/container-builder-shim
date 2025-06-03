@@ -75,7 +75,6 @@ func (b *BuilderProxy) PerformBuild(s api.Builder_PerformBuildServer) (err error
 
 	stages := []stream.Stage{
 		opts.ContentStore,
-		opts.Exporter,
 		opts.FSSync,
 		opts.Resolver,
 		opts.Stdio,

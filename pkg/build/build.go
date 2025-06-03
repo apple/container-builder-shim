@@ -19,6 +19,8 @@ package build
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/containerd/containerd/platforms"
@@ -28,16 +30,10 @@ import (
 	"github.com/moby/buildkit/session"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-
-	"github.com/apple/container-builder-shim/pkg/exporter"
 )
 
 func Build(ctx context.Context, opts *BOpts) error {
 	grpcOpts := []grpc.DialOption{
-		grpc.WithReadBufferSize(16 << 20),        // 16MB
-		grpc.WithWriteBufferSize(8 << 20),        // 8MB
-		grpc.WithInitialWindowSize(8 << 10),      // 8KB
-		grpc.WithInitialConnWindowSize(16 << 10), // 16KB
 		grpc.WithDefaultCallOptions(grpc.WaitForReady(true)),
 
 		grpc.WithDefaultCallOptions(
@@ -55,6 +51,7 @@ func Build(ctx context.Context, opts *BOpts) error {
 		logrus.Debugf("failed to connect to buildkit")
 		return err
 	}
+	defer buildkit.Close()
 
 	exports, err := build.ParseOutput(opts.Outputs)
 	if err != nil {
@@ -67,11 +64,31 @@ func Build(ctx context.Context, opts *BOpts) error {
 		})
 	}
 
+	outputPath := filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
+	f, err := os.CreateTemp("", "")
+	if err != nil {
+		return err
+	}
+
+	// IMPORTANT:
+	// gRPC's buffer pool allocates new buffers indefinitely when writing over any network medium.
+	//
+	// This issue is specifically observed when writing over network or virtiofs,
+	// potentially due to underlying OS/kernel behaviors affecting heap ref-counting.
+	// Direct disk writes do NOT trigger excessive bufPool allocations, likely due to
+	// immediate heap release. As a workaround, we write grpc buffers directly to disk
+	// first, then perform a separate io.Copy from disk to virtiofs to avoid the issue.
+	wf := &wrappedWriteCloser{
+		f:    f,
+		dest: outputPath,
+	}
+
 	exportsWithOutput := []client.ExportEntry{}
 	for _, export := range exports {
-		export.Output = func(attrs map[string]string) (io.WriteCloser, error) {
-			return exporter.NewBufferedWriteCloser(io.WriteCloser(opts.Exporter), 1<<22), nil
+		export.Output = func(map[string]string) (io.WriteCloser, error) {
+			return wf, nil
 		}
+		export.Attrs["output"] = filepath.Join(opts.basePath, "out.tar")
 		if _, ok := export.Attrs["name"]; !ok {
 			export.Attrs["name"] = opts.Tag
 		}
@@ -132,4 +149,37 @@ func Build(ctx context.Context, opts *BOpts) error {
 	_, err = buildkit.Build(opts.Context(ctx), solveOpt, "", frontend, opts.ProgressWriter.Status())
 	<-opts.ProgressWriter.Done()
 	return err
+}
+
+type wrappedWriteCloser struct {
+	f    *os.File
+	dest string
+}
+
+func (w *wrappedWriteCloser) Write(p []byte) (n int, err error) {
+	return w.f.Write(p)
+}
+
+func (w *wrappedWriteCloser) Close() error {
+	defer w.f.Close()
+	defer os.RemoveAll(w.f.Name())
+
+	if err := w.f.Sync(); err != nil {
+		return err
+	}
+
+	if _, err := w.f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	outFile, err := os.Create(w.dest)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	if _, err := io.CopyBuffer(outFile, w.f, make([]byte, 1<<20)); err != nil {
+		return err
+	}
+	return nil
 }
