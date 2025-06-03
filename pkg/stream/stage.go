@@ -25,8 +25,6 @@ import (
 
 	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/sirupsen/logrus"
-
-	"golang.org/x/sync/singleflight"
 )
 
 // Stage is the common interface implemented by ContentStore, FSSync, Stdio,
@@ -35,9 +33,6 @@ type Stage interface {
 	Filter
 	fmt.Stringer
 	Send(*api.ServerStream) error
-
-	getDemuxTable() *sync.Map
-	setDemuxTable(*sync.Map)
 
 	getSendCh() chan *api.ServerStream
 	setSendCh(chan *api.ServerStream)
@@ -53,16 +48,7 @@ type UnimplementedBaseStage struct {
 	sendCh chan *api.ServerStream
 	recvCh chan *api.ClientStream
 
-	demux *sync.Map
-	group singleflight.Group
-}
-
-func (b *UnimplementedBaseStage) getDemuxTable() *sync.Map {
-	return b.demux
-}
-
-func (b *UnimplementedBaseStage) setDemuxTable(m *sync.Map) {
-	b.demux = m
+	demux sync.Map
 }
 
 func (b *UnimplementedBaseStage) getSendCh() chan *api.ServerStream {
@@ -142,42 +128,29 @@ func (b *UnimplementedBaseStage) Send(s *api.ServerStream) error {
 
 func (b *UnimplementedBaseStage) Request(ctx context.Context, s *api.ServerStream, id string, filter FilterByIDFn) (*api.ClientStream, error) {
 
-	v, err, _ := b.group.Do(id, func() (interface{}, error) {
-		if dm, ok := b.demux.Load(id); ok {
-			return dm.(*Demultiplexer).Recv()
-		}
+	if dm, ok := b.demux.Load(id); ok {
+		return dm.(*Demultiplexer).Recv()
+	}
 
-		dm := NewDemuxWithContext(ctx, id, filter(id), b.demux.Delete)
-		b.RegisterDemux(id, dm)
+	dm := NewDemuxWithContext(ctx, id, filter(id), b.demux.Delete)
+	b.RegisterDemux(id, dm)
 
-		if err := b.Send(s); err != nil {
-			b.demux.Delete(id)
-			b.group.Forget(id)
-			return nil, err
-		}
-
-		return dm.Recv()
-	})
-	if err != nil {
+	if err := b.Send(s); err != nil {
+		b.demux.Delete(id)
 		return nil, err
 	}
-	return v.(*api.ClientStream), nil
+
+	return dm.Recv()
+
 }
 
 func (b *UnimplementedBaseStage) RecvFilter(ctx context.Context, id string, filter FilterByIDFn) (*api.ClientStream, error) {
-
-	v, err, _ := b.group.Do(id, func() (interface{}, error) {
-		if dm, ok := b.demux.Load(id); ok {
-			return dm.(*Demultiplexer).Recv()
-		}
-		dm := NewDemuxWithContext(ctx, id, filter(id), b.demux.Delete)
-		b.RegisterDemux(id, dm)
-		return dm.Recv()
-	})
-	if err != nil {
-		return nil, err
+	if dm, ok := b.demux.Load(id); ok {
+		return dm.(*Demultiplexer).Recv()
 	}
-	return v.(*api.ClientStream), nil
+	dm := NewDemuxWithContext(ctx, id, filter(id), b.demux.Delete)
+	b.RegisterDemux(id, dm)
+	return dm.Recv()
 }
 
 // RegisterDemux stores dm under id (overwriting any previous value).

@@ -19,6 +19,7 @@ package build
 import "fmt"
 
 var (
+	ErrMissingBuildID            = fmt.Errorf("build ID is missing")
 	ErrInvalidGatewayRequest     = fmt.Errorf("invalid request to gateway")
 	ErrMissingContext            = fmt.Errorf("context missing")
 	ErrMissingContextDockerfile  = fmt.Errorf("dockerfile missing in build context")

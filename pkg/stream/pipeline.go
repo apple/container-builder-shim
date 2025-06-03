@@ -63,7 +63,6 @@ func NewPipeline(parent context.Context, raw Stream, stages ...Stage) (*StreamPi
 		stg.setRecvCh(make(chan *api.ClientStream, 4))
 		p.stages = append(p.stages, stg)
 
-		stg.setDemuxTable(&sync.Map{})
 		p.wg.Add(1)
 		go func(s Stage) {
 			defer p.wg.Done()
