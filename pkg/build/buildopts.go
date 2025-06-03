@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"path/filepath"
 	"strings"
 
 	"github.com/containerd/containerd/platforms"
@@ -29,7 +30,6 @@ import (
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/apple/container-builder-shim/pkg/content"
-	"github.com/apple/container-builder-shim/pkg/exporter"
 	"github.com/apple/container-builder-shim/pkg/fssync"
 	"github.com/apple/container-builder-shim/pkg/resolver"
 	"github.com/apple/container-builder-shim/pkg/stdio"
@@ -49,11 +49,17 @@ const (
 	KeyCacheIn          = "cache-in"
 	KeyCacheOut         = "cache-out"
 	KeyOutput           = "outputs"
+	KeyBuildID          = "build-id"
+)
+
+const (
+	GlobalExportPath = "/var/lib/container-builder-shim/exports"
 )
 
 var keyBOpts = struct{}{}
 
 type BOpts struct {
+	BuildID        string
 	Dockerfile     []byte
 	Tag            string
 	ContextDir     string
@@ -72,7 +78,8 @@ type BOpts struct {
 	Resolver     *resolver.ResolverProxy
 	FSSync       *fssync.FSSyncProxy
 	Stdio        *stdio.StdioProxy
-	Exporter     *exporter.ExporterProxy
+
+	basePath string
 }
 
 func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]string) (*BOpts, error) {
@@ -82,6 +89,11 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 			return "", false
 		}
 		return values[0], true
+	}
+
+	buildID, ok := first(KeyBuildID)
+	if !ok {
+		return nil, ErrMissingBuildID
 	}
 
 	dockerfileBase64Bytes, ok := first(KeyDockerfile)
@@ -213,12 +225,12 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	}
 
 	bopts := &BOpts{
+		BuildID:        buildID,
 		Dockerfile:     dockerfileBytes,
 		Tag:            tag,
 		Platforms:      pls,
 		ContextDir:     ctxDir,
 		ContentStore:   contentProxy,
-		Exporter:       exporter.NewExporterProxy(ctx),
 		FSSync:         fssyncProxy,
 		NoCache:        noCache,
 		Resolver:       resolver.NewResolverProxy(),
@@ -230,6 +242,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		CacheIn:        cacheIn,
 		CacheOut:       cacheOut,
 		Outputs:        outputs,
+		basePath:       filepath.Join(basePath, buildID),
 	}
 
 	return bopts, nil
