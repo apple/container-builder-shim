@@ -29,4 +29,5 @@
 
 ## Contributing
 
-Contributions are welcome! Feel free to submit issues, enhancements, or pull requests.
+Contributions are welcome! Feel free to submit issues, enhancements, or pull requests.  
+This project follows the [same guidelines as the Containerization](https://github.com/apple/containerization/blob/main/CONTRIBUTING.md) repo.
