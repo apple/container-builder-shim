@@ -19,6 +19,7 @@
 - **IO Stream:** Streams real-time build logs and progress updates.
 
 ## How It Works
+
 ![922e463d-d2cb-4e27-bf22-96ed54770305](https://github.com/user-attachments/assets/461930a4-cfab-4b91-ae3b-dee225cdc461)
 
 1. BuildKit initiates a session via gRPC.
@@ -29,4 +30,5 @@
 
 ## Contributing
 
-Contributions are welcome! Feel free to submit issues, enhancements, or pull requests.
+Contributions to Containerization are welcomed and encouraged. Please see our [main contributing guide](https://github.com/apple/containerization/blob/main/CONTRIBUTING.md) for more information.
+
