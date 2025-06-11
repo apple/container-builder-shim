@@ -157,7 +157,7 @@ func parsePattern(pattern string) *gitIgnorePattern {
 	// directly on the root directory instead of any descendant paths.
 	// So remove empty first segment to make pattern absoluut to root.
 	// A pattern without a beginning slash ('/') will match any
-	// descendant path. This is equivilent to "**/{pattern}". So
+	// descendant path. This is equivalent to "**/{pattern}". So
 	// prepend with double-asterisks to make pattern relative to
 	// root.
 	if patternSegs[0] == "" {

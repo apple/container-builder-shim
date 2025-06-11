@@ -16,8 +16,8 @@ type Metrics struct {
 	Duration time.Duration
 	// Written is the number of bytes successfully written by the Write or
 	// ReadFrom function of the ResponseWriter. ResponseWriters may also write
-	// data to their underlaying connection directly (e.g. headers), but those
-	// are not tracked. Therefor the number of Written bytes will usually match
+	// data to their underlying connection directly (e.g. headers), but those
+	// are not tracked. Therefore the number of Written bytes will usually match
 	// the size of the response body.
 	Written int64
 }

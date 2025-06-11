@@ -49,7 +49,7 @@ byte should be considered reserved for future use.
 The Stream ID must be odd for client initiated streams and even for server
 initiated streams. Server initiated streams are not currently supported.
 
-## Mesage Types
+## Message Types
 
 | Message Type | Name     | Description                      |
 |--------------|----------|----------------------------------|

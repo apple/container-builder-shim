@@ -123,7 +123,7 @@ func atomicStoreShadowPresence(p **[]byte, v *[]byte) {
 
 // findPointerToRaceDetectData finds the preceding RaceDetectHookData
 // in a message by using pointer arithmetic. For the methods called
-// directy from generated code, we don't have a pointer to the
+// directly from generated code, we don't have a pointer to the
 // beginning of the presence set, but a pointer inside the array. As
 // we know the index of the bit we're manipulating (num), we can
 // calculate which element of the array ptr is pointing to. With that

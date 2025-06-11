@@ -26,7 +26,7 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// SocketMetrics defines the struct that the implementor of Socket interface
+// SocketMetrics defines the struct that the implementer of Socket interface
 // should return from ChannelzMetric().
 type SocketMetrics struct {
 	// The number of streams that have been started.

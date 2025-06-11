@@ -25,7 +25,7 @@ type result[T any] struct {
 	err error
 }
 
-// Do executes a context function syncronized by the key or returns the cached result for the key.
+// Do executes a context function synchronized by the key or returns the cached result for the key.
 func (g *CachedGroup[T]) Do(ctx context.Context, key string, fn func(ctx context.Context) (T, error)) (T, error) {
 	return g.g.Do(ctx, key, func(ctx context.Context) (T, error) {
 		g.mu.Lock()

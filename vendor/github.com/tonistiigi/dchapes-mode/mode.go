@@ -165,8 +165,8 @@ func Parse(s string) (Set, error) {
 
 // TODO(dchapes): A Set.Parse method that reuses existing memory.
 
-// TODO(dchapes): Only call syscall.Umask when abosolutely necessary and
-// provide a Set method to query if set is umask dependant (and perhaps
+// TODO(dchapes): Only call syscall.Umask when absolutely necessary and
+// provide a Set method to query if set is umask dependent (and perhaps
 // the umask that was in effect when parsed).
 
 // ParseWithUmask is like Parse but uses the provided
@@ -286,7 +286,7 @@ func ParseWithUmask(s string, umask uint) (Set, error) {
 				}
 				m.addcmd(b, who, modet(op), mask)
 			default:
-				// Add any permissions that we haven't alread done.
+				// Add any permissions that we haven't already done.
 				if perm != 0 || op == '=' && !equalOpDone {
 					if op == '=' {
 						equalOpDone = true

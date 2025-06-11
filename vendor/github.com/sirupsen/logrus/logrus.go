@@ -177,7 +177,7 @@ type FieldLogger interface {
 }
 
 // Ext1FieldLogger (the first extension to FieldLogger) is superfluous, it is
-// here for consistancy. Do not use. Use Logger or Entry instead.
+// here for consistency. Do not use. Use Logger or Entry instead.
 type Ext1FieldLogger interface {
 	FieldLogger
 	Tracef(format string, args ...interface{})

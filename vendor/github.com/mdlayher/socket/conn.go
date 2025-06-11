@@ -26,7 +26,7 @@ var _ interface {
 // network poller to provide asynchronous I/O and deadline support.
 //
 // Many of a Conn's blocking methods support net.Conn deadlines as well as
-// cancelation via context. Note that passing a context with a deadline set will
+// cancellation via context. Note that passing a context with a deadline set will
 // override any of the previous deadlines set by calls to the SetDeadline family
 // of methods.
 type Conn struct {
@@ -114,7 +114,7 @@ func (c *Conn) CloseWrite() error { return c.Shutdown(unix.SHUT_WR) }
 func (c *Conn) Read(b []byte) (int, error) { return c.fd.Read(b) }
 
 // ReadContext reads from the underlying file descriptor with added support for
-// context cancelation.
+// context cancellation.
 func (c *Conn) ReadContext(ctx context.Context, b []byte) (int, error) {
 	if c.facts.isStream && len(b) > maxRW {
 		b = b[:maxRW]
@@ -134,7 +134,7 @@ func (c *Conn) ReadContext(ctx context.Context, b []byte) (int, error) {
 func (c *Conn) Write(b []byte) (int, error) { return c.fd.Write(b) }
 
 // WriteContext writes to the underlying file descriptor with added support for
-// context cancelation.
+// context cancellation.
 func (c *Conn) WriteContext(ctx context.Context, b []byte) (int, error) {
 	var (
 		n, nn int
@@ -408,7 +408,7 @@ func New(fd int, name string) (*Conn, error) {
 // If the operating system only supports accept(2) (which does not allow flags)
 // and flags is not zero, an error will be returned.
 //
-// Accept obeys context cancelation and uses the deadline set on the context to
+// Accept obeys context cancellation and uses the deadline set on the context to
 // cancel accepting the next connection. If a deadline is set on ctx, this
 // deadline will override any previous deadlines set using SetDeadline or
 // SetReadDeadline. Upon return, the read deadline is cleared.
@@ -447,7 +447,7 @@ func (c *Conn) Bind(sa unix.Sockaddr) error {
 // connected to a remote peer, Connect calls getpeername(2) and returns the
 // unix.Sockaddr from that call.
 //
-// Connect obeys context cancelation and uses the deadline set on the context to
+// Connect obeys context cancellation and uses the deadline set on the context to
 // cancel connecting to a remote peer. If a deadline is set on ctx, this
 // deadline will override any previous deadlines set using SetDeadline or
 // SetWriteDeadline. Upon return, the write deadline is cleared.
@@ -693,7 +693,7 @@ const (
 
 // An rwContext provides arguments to rwT.
 type rwContext[T any] struct {
-	// The caller's context passed for cancelation.
+	// The caller's context passed for cancellation.
 	Context context.Context
 
 	// The type of an operation: read or write.
@@ -709,7 +709,7 @@ type rwContext[T any] struct {
 // rwT executes c.rc.Read or c.rc.Write (depending on the value of rw.Type) for
 // rw.Op using the input function, returning a newly allocated result T.
 //
-// It obeys context cancelation and the rw.Context must not be nil.
+// It obeys context cancellation and the rw.Context must not be nil.
 func rwT[T any](c *Conn, rw rwContext[T]) (T, error) {
 	if atomic.LoadUint32(&c.closed) != 0 {
 		// If the file descriptor is already closed, do nothing.
@@ -739,10 +739,10 @@ func rwT[T any](c *Conn, rw rwContext[T]) (T, error) {
 
 	var (
 		// Whether or not the context carried a deadline we are actively using
-		// for cancelation.
+		// for cancellation.
 		setDeadline bool
 
-		// Signals for the cancelation watcher goroutine.
+		// Signals for the cancellation watcher goroutine.
 		wg    sync.WaitGroup
 		doneC = make(chan struct{})
 
@@ -757,7 +757,7 @@ func rwT[T any](c *Conn, rw rwContext[T]) (T, error) {
 	}()
 
 	if d, ok := rw.Context.Deadline(); ok {
-		// The context has an explicit deadline. We will use it for cancelation
+		// The context has an explicit deadline. We will use it for cancellation
 		// but disarm it after poll for the next call.
 		if err := deadline(d); err != nil {
 			return *new(T), err
@@ -766,7 +766,7 @@ func rwT[T any](c *Conn, rw rwContext[T]) (T, error) {
 		needDisarm.Store(true)
 	} else {
 		// The context does not have an explicit deadline. We have to watch for
-		// cancelation so we can propagate that signal to immediately unblock
+		// cancellation so we can propagate that signal to immediately unblock
 		// the runtime network poller.
 		//
 		// TODO(mdlayher): is it possible to detect a background context vs a

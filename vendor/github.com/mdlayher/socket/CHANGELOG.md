@@ -33,7 +33,7 @@ Users on older versions of Go must use v0.3.0.**
 **This is the last release of package socket that supports Go 1.17 and below.**
 
 - [New API/API change] [PR](https://github.com/mdlayher/socket/pull/8):
-  numerous `socket.Conn` methods now support context cancelation. Future
+  numerous `socket.Conn` methods now support context cancellation. Future
   releases will continue adding support as needed.
   - New `ReadContext` and `WriteContext` methods.
   - `Connect`, `Recvfrom`, `Recvmsg`, `Sendmsg`, and `Sendto` methods now accept

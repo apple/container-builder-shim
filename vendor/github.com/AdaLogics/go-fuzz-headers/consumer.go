@@ -797,7 +797,7 @@ func (f *ConsumeFuzzer) TarFiles() ([]*TarFile, error) {
 			hdr.Typeflag = tar.TypeReg
 		}
 		if err := setTarHeaderFormat(hdr, f); err != nil {
-			return tarFiles, err // should not happend
+			return tarFiles, err // should not happened
 		}
 		tf := &TarFile{
 			Hdr:  hdr,

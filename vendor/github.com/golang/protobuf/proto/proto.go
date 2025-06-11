@@ -39,7 +39,7 @@ type GeneratedMessage interface{}
 // Message is a protocol buffer message.
 //
 // This is the v1 version of the message interface and is marginally better
-// than an empty interface as it lacks any method to programatically interact
+// than an empty interface as it lacks any method to programmatically interact
 // with the contents of the message.
 //
 // A v2 message is declared in "google.golang.org/protobuf/proto".Message and

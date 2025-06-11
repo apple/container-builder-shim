@@ -40,7 +40,7 @@ type ProvenanceMetadata struct {
 	Reproducible    bool               `json:"reproducible"`
 }
 
-// ProvenanceComplete indicates wheter the claims in build/recipe are complete.
+// ProvenanceComplete indicates whether the claims in build/recipe are complete.
 // For in depth information refer to the specifictaion:
 // https://github.com/in-toto/attestation/blob/v0.1.0/spec/predicates/provenance.md
 type ProvenanceComplete struct {

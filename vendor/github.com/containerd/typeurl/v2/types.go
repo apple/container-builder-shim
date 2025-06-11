@@ -54,7 +54,7 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
-// Any contains an arbitrary protcol buffer message along with its type.
+// Any contains an arbitrary protocol buffer message along with its type.
 //
 // While there is google.golang.org/protobuf/types/known/anypb.Any,
 // we'd like to have our own to hide the underlying protocol buffer

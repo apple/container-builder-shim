@@ -64,7 +64,7 @@ func New(path string, opts ...Option) *Flock {
 	flags := os.O_CREATE
 	switch runtime.GOOS {
 	case "aix", "solaris", "illumos":
-		// AIX cannot preform write-lock (i.e. exclusive) on a read-only file.
+		// AIX cannot perform write-lock (i.e. exclusive) on a read-only file.
 		flags |= os.O_RDWR
 	default:
 		flags |= os.O_RDONLY

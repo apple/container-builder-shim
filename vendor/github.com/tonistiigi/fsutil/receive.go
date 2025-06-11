@@ -333,7 +333,7 @@ func (r *receiver) run(ctx context.Context) error {
 		return nil
 	}
 
-	// although we don't allow tranferring metadataPath, make sure there was no preexisting file/symlink
+	// although we don't allow transferring metadataPath, make sure there was no preexisting file/symlink
 	os.Remove(filepath.Join(r.dest, metadataPath))
 
 	f, err := os.OpenFile(filepath.Join(r.dest, metadataPath), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)

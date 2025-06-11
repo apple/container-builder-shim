@@ -27,7 +27,7 @@ func (e *Envelope) DecodeB64Payload() ([]byte, error) {
 /*
 Signature represents a generic in-toto signature that contains the identifier
 of the key which was used to create the signature.
-The used signature scheme has to be agreed upon by the signer and verifer
+The used signature scheme has to be agreed upon by the signer and verifier
 out of band.
 The signature is a base64 encoding of the raw bytes from the signature
 algorithm.
@@ -38,7 +38,7 @@ type Signature struct {
 }
 
 /*
-PAE implementes the DSSE Pre-Authentic Encoding
+PAE implements the DSSE Pre-Authentic Encoding
 https://github.com/secure-systems-lab/dsse/blob/master/protocol.md#signature-definition
 */
 func PAE(payloadType string, payload []byte) []byte {

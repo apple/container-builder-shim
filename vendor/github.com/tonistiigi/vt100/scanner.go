@@ -11,7 +11,7 @@ import (
 //
 // s should be connected to a client program that expects an
 // ANSI terminal on the other end. It will push bytes to us that we are meant
-// to intepret as terminal control codes, or text to place onto the terminal.
+// to interpret as terminal control codes, or text to place onto the terminal.
 //
 // This Command alone does not actually update the terminal. You need to pass
 // it to VT100.Process().

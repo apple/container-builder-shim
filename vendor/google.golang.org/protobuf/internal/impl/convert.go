@@ -17,7 +17,7 @@ type unwrapper interface {
 	protoUnwrap() any
 }
 
-// A Converter coverts to/from Go reflect.Value types and protobuf protoreflect.Value types.
+// A Converter converts to/from Go reflect.Value types and protobuf protoreflect.Value types.
 type Converter interface {
 	// PBValueOf converts a reflect.Value to a protoreflect.Value.
 	PBValueOf(reflect.Value) protoreflect.Value

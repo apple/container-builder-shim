@@ -129,7 +129,7 @@ This new release introduces:
     which is mostly useful for logger wrapper
   * a fix reverting the immutability of the entry given as parameter to the hooks
     a new configuration field of the json formatter in order to put all the fields
-    in a nested dictionnary
+    in a nested dictionary
   * a new SetOutput method in the Logger
   * a new configuration of the textformatter to configure the name of the default keys
   * a new configuration of the text formatter to disable the level truncation

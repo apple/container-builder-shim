@@ -1149,7 +1149,7 @@ type command struct {
 	isOnBuild bool
 }
 
-// initOnBuildTriggers initializes the onbuild triggers and creates the commands and dependecies for them.
+// initOnBuildTriggers initializes the onbuild triggers and creates the commands and dependencies for them.
 // It returns true if there were any new dependencies added that need to be resolved.
 func initOnBuildTriggers(d *dispatchState, triggers []string, allDispatchStates *dispatchStates) (bool, error) {
 	hasNewDeps := false
@@ -1881,7 +1881,7 @@ func pathRelativeToWorkingDir(s llb.State, p string, platform ocispecs.Platform)
 	}
 
 	// add slashes for "" and "." paths
-	// "" is treated as current directory and not necessariy root
+	// "" is treated as current directory and not necessary root
 	if p == "." || p == "" {
 		p = "./"
 	}

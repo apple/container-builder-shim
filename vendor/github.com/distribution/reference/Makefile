@@ -10,7 +10,7 @@ TESTFLAGS ?=
 
 all: build
 
-build: ## no binaries to build, so just check compilation suceeds
+build: ## no binaries to build, so just check compilation succeeds
 	go build ${BUILDFLAGS} ./...
 
 test: ## run tests

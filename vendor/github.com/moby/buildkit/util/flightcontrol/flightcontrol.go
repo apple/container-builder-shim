@@ -31,7 +31,7 @@ type Group[T any] struct {
 	m  map[string]*call[T] // lazily initialized
 }
 
-// Do executes a context function syncronized by the key
+// Do executes a context function synchronized by the key
 func (g *Group[T]) Do(ctx context.Context, key string, fn func(ctx context.Context) (T, error)) (v T, err error) {
 	var backoff time.Duration
 	for {

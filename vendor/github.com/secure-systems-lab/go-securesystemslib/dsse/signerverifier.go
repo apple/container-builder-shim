@@ -11,7 +11,7 @@ interface is used to inject signature algorithm implementations into the
 EnvelopeSigner. This decoupling allows for any signing algorithm and key
 management system can be used. The full message is provided as the parameter.
 If the signature algorithm depends on hashing of the message prior to signature
-calculation, the implementor of this interface must perform such hashing. The
+calculation, the implementer of this interface must perform such hashing. The
 function must return raw bytes representing the calculated signature using the
 current algorithm, and the key used (if applicable).
 */

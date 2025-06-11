@@ -1,5 +1,5 @@
 // This package provides utilities for efficiently performing Win32 IO operations in Go.
-// Currently, this package is provides support for genreal IO and management of
+// Currently, this package is provides support for general IO and management of
 //   - named pipes
 //   - files
 //   - [Hyper-V sockets]

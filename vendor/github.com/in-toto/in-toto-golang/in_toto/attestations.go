@@ -40,7 +40,7 @@ of the predicate. This struct represents a generic statement.
 */
 type Statement struct {
 	StatementHeader
-	// Predicate contains type speficic metadata.
+	// Predicate contains type specific metadata.
 	Predicate interface{} `json:"predicate"`
 }
 

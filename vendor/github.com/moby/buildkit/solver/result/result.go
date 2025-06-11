@@ -166,7 +166,7 @@ func EachRef[U comparable, V comparable](a *Result[U], b *Result[V], fn func(U, 
 	return err
 }
 
-// ConvertResult transforms a Result[U] into a Result[V], using a transfomer
+// ConvertResult transforms a Result[U] into a Result[V], using a transformer
 // function that converts a U to a V. Zero values of type U are converted to
 // zero values of type V directly, without passing through the transformer
 // function.
