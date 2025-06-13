@@ -1,5 +1,4 @@
 container-builder-shim
-.vscode
 .DS_Store
 bin
 .build
