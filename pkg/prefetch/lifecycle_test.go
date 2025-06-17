@@ -25,12 +25,12 @@ import (
 	"time"
 )
 
-type flakeyReaderAt struct {
+type flakyReaderAt struct {
 	data  []byte
 	calls atomic.Int32
 }
 
-func (f *flakeyReaderAt) ReadAt(p []byte, off int64) (int, error) {
+func (f *flakyReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	c := f.calls.Add(1)
 	if c == 1 {
 		return 0, errors.New("transient")
@@ -152,11 +152,11 @@ func TestRetryLogic(t *testing.T) {
 	for i := range data {
 		data[i] = byte(i)
 	}
-	flakey := &flakeyReaderAt{data: data}
+	flaky := &flakyReaderAt{data: data}
 	cfg := DefaultConfig()
 	cfg.ChunkSize = len(data)
 	cfg.MaxRetries = 1
-	pf, err := New(flakey, int64(len(data)), cfg)
+	pf, err := New(flaky, int64(len(data)), cfg)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestRetryLogic(t *testing.T) {
 	if err != nil && err != io.EOF {
 		t.Errorf("Expected EOF or nil after read, got %v", err)
 	}
-	if calls := flakey.calls.Load(); calls < 2 {
+	if calls := flaky.calls.Load(); calls < 2 {
 		t.Errorf("Expected at least 2 underlying attempts, got %d", calls)
 	}
 }

@@ -109,7 +109,7 @@ func TestMapGetter_Get(t *testing.T) {
 			wantFound: true,
 		},
 		{
-			name:      "non-existent key",
+			name:      "nonexistent key",
 			key:       "nonexistent",
 			wantValue: "",
 			wantFound: false,
