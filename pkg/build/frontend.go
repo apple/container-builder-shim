@@ -141,7 +141,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 				return
 			}
 
-			ref, err := dref.ParseAnyReference(resolvedBaseStageName.Result)
+			ref, err := dref.Parse(resolvedBaseStageName.Result)
 			if err != nil {
 				if err == reference.ErrObjectRequired {
 					return
