@@ -21,12 +21,10 @@ import (
 	"fmt"
 
 	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/reference"
 	"github.com/google/uuid"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/opencontainers/go-digest"
-	"github.com/sirupsen/logrus"
 
 	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/apple/container-builder-shim/pkg/stream"
@@ -116,16 +114,6 @@ Response Format:
 	}
 */
 func (r *ResolverProxy) ResolveImageConfig(ctx context.Context, ref string, opt sourceresolver.Opt) (string, digest.Digest, []byte, error) {
-	var err error
-	u, err := reference.Parse(ref)
-	if err != nil {
-		logrus.Debugf("reference parse error: %v", err)
-		return ref, digest.Digest(""), nil, err
-	} else if u.Object == "" {
-		logrus.Debugf("reference object empty: %#v", u)
-		return ref, digest.Digest(""), nil, reference.ErrObjectRequired
-	}
-
 	req := &api.ImageTransfer{
 		Direction: api.TransferDirection_INTO,
 		Metadata: map[string]string{
@@ -145,5 +133,10 @@ func (r *ResolverProxy) ResolveImageConfig(ctx context.Context, ref string, opt 
 		return ref, digest.Digest(""), nil, fmt.Errorf("%s", err)
 	}
 
-	return ref, digest.Digest(resp.Tag), resp.Data, nil
+	resolvedRef, ok := resp.Metadata["ref"]
+	if !ok {
+		return ref, digest.Digest(""), nil, fmt.Errorf("missing ref in response metadata: %v", resp.Metadata)
+	}
+
+	return resolvedRef, digest.Digest(resp.Tag), resp.Data, nil
 }

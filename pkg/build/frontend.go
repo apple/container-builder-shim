@@ -141,7 +141,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 				return
 			}
 
-			ref, err := dref.ParseAnyReference(resolvedBaseStageName.Result)
+			ref, err := dref.Parse(resolvedBaseStageName.Result)
 			if err != nil {
 				if err == reference.ErrObjectRequired {
 					return
@@ -165,7 +165,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			resolverOpts.ImageOpt = &sourceresolver.ResolveImageOpt{
 				ResolveMode: llb.ResolveModePreferLocal.String(),
 			}
-			_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, ref.String(), resolverOpts)
+			resolvedRef, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, ref.String(), resolverOpts)
 			if err != nil {
 				if err == reference.ErrObjectRequired {
 					return
@@ -174,7 +174,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 				errCh <- err
 				return
 			}
-			fqdn := ref.String()
+			fqdn := resolvedRef
 			if _, ok := ref.(dref.Digested); !ok {
 				fqdn = fqdn + "@" + digest.String()
 			}
