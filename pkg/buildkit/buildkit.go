@@ -82,10 +82,7 @@ func Start(ctx context.Context, config BuildkitdConfig, args ...string) error {
 	}()
 	select {
 	case <-ctx.Done():
-		err := proc.Signal(syscall.SIGTERM)
-		if err != nil {
-			return err
-		}
+		_ = proc.Signal(syscall.SIGTERM)
 		return ctx.Err()
 	case err := <-errCh:
 		return err
