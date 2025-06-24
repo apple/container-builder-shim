@@ -46,7 +46,7 @@ func (f *File) ReadAt(p []byte, off int64) (n int, err error) {
 			return 0, err
 		}
 		ln, err := f.rs.Read(p)
-		f.index = f.index + int64(ln)
+		f.index += int64(ln)
 		return ln, err
 	}
 
@@ -101,7 +101,7 @@ func (f *File) ReadAt(p []byte, off int64) (n int, err error) {
 func (f *File) Read(p []byte) (n int, err error) {
 	if f.rs != nil {
 		ln, err := f.rs.Read(p)
-		f.index = f.index + int64(ln)
+		f.index += int64(ln)
 		return ln, err
 	}
 
@@ -116,7 +116,7 @@ func (f *File) Read(p []byte) (n int, err error) {
 				return 0, err
 			}
 			ln, err := f.Read(p)
-			f.index = f.index + int64(ln)
+			f.index += int64(ln)
 			return ln, err
 		}
 	}
@@ -152,7 +152,7 @@ func (f *File) Read(p []byte) (n int, err error) {
 	if ln == 0 {
 		return 0, io.EOF
 	}
-	f.index = f.index + int64(ln)
+	f.index += int64(ln)
 
 	if ln < length {
 		return ln, nil
