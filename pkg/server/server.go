@@ -18,6 +18,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -89,7 +90,7 @@ func (b *BuilderProxy) PerformBuild(s api.Builder_PerformBuildServer) (err error
 	}
 	go func() {
 		if err := pipeline.Run(); err != nil {
-			if err != context.Canceled {
+			if !errors.Is(err, context.Canceled) {
 				logrus.Errorf("pipeline run failure: %v", err)
 			}
 		}

@@ -17,6 +17,7 @@
 package stream
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/apple/container-builder-shim/pkg/api"
@@ -32,7 +33,7 @@ func TestFilterByBuildID(t *testing.T) {
 	if err := f(okPkt); err != nil {
 		t.Fatalf("expected accept, got %v", err)
 	}
-	if err := f(badPkt); err != ErrIgnorePacket {
+	if err := f(badPkt); !errors.Is(err, ErrIgnorePacket) {
 		t.Fatalf("expected ErrIgnorePacket, got %v", err)
 	}
 }
@@ -49,7 +50,7 @@ func TestFilterChainStopsOnFirstError(t *testing.T) {
 	}
 
 	chain := FilterChain(fn1, fn2)
-	if err := chain(&api.ClientStream{}); err != ErrIgnorePacket {
+	if err := chain(&api.ClientStream{}); !errors.Is(err, ErrIgnorePacket) {
 		t.Fatalf("expected ErrIgnorePacket, got %v", err)
 	}
 	if called != 1 {
