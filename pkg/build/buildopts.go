@@ -196,7 +196,10 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 
 	for _, metaArg := range metaArgs {
 		for _, arg := range metaArg.Args {
-			buildArgs[arg.Key] = arg.ValueString()
+			// Only use the dockerfile meta arg if the user did not overwrite it
+			if _, ok := buildArgs[arg.Key]; !ok {
+				buildArgs[arg.Key] = arg.ValueString()
+			}
 		}
 	}
 
