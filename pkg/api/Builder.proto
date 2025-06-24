@@ -86,7 +86,7 @@ option go_package = "pkg/api;api";
 //
 //
 //    NOTE: the client should close the send stream once it has finished
-//    receiving the build output or abadon the current build due to error.
+//    receiving the build output or abandon the current build due to error.
 //    Server should keep the stream open until it receives the EOF that client
 //    has closed the stream, which the server should then close its send stream.
 service Builder {
