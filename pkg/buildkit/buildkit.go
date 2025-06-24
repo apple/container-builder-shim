@@ -44,7 +44,7 @@ func Start(ctx context.Context, config BuildkitdConfig, args ...string) error {
 	}
 
 	path := "/sbin:/usr/sbin:/bin:/usr/bin"
-	envs := []string{}
+	var envs []string
 	for _, env := range os.Environ() {
 		envSplits := strings.SplitN(env, "=", 2)
 		k := envSplits[0]
@@ -82,7 +82,10 @@ func Start(ctx context.Context, config BuildkitdConfig, args ...string) error {
 	}()
 	select {
 	case <-ctx.Done():
-		proc.Signal(syscall.SIGTERM)
+		err := proc.Signal(syscall.SIGTERM)
+		if err != nil {
+			return err
+		}
 		return ctx.Err()
 	case err := <-errCh:
 		return err
