@@ -18,6 +18,7 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 
@@ -120,7 +121,7 @@ func (p *StreamPipeline) Run() error {
 					stage.process(pkt)
 					handled = true
 					break
-				case err == ErrIgnorePacket:
+				case errors.Is(err, ErrIgnorePacket):
 					continue
 				default: // real error
 					logrus.WithError(err).Warn("Filter error")
