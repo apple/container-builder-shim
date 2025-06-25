@@ -101,12 +101,12 @@ func (bc *BuildkitdConfig) Save() error {
 	if err != nil {
 		return err
 	}
-	err = os.MkdirAll(filepath.Dir(ConfigPath), 0755)
+	err = os.MkdirAll(filepath.Dir(ConfigPath), 0o755)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(ConfigPath, data, 0644)
+	return os.WriteFile(ConfigPath, data, 0o644)
 }
 
 func int64Ptr(v int64) *int64 {
