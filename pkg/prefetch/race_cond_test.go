@@ -288,13 +288,14 @@ func TestPrefetcherGrowingFile(t *testing.T) {
 
 			n, err := pf.ReadAt(buffer, offset)
 
-			if err == nil {
+			switch err {
+			case nil:
 				successfulReads.Add(1)
 				offset += int64(n)
-			} else if err == io.EOF {
+			case io.EOF:
 				eofCount.Add(1)
 				time.Sleep(growDelay * 2)
-			} else {
+			default:
 				t.Errorf("Unexpected error: %v at offset %d (current size: %d)",
 					err, offset, currentSize)
 				break
@@ -442,19 +443,20 @@ func TestPrefetcherZeroSizedReadsAndEmptyReader(t *testing.T) {
 				buf := make([]byte, tc.readSize)
 				n, err := pf.ReadAt(buf, offset)
 
-				if tc.dataSize == 0 && tc.readSize > 0 {
+				switch {
+				case tc.dataSize == 0 && tc.readSize > 0:
 					if err != io.EOF {
 						t.Errorf("Expected EOF for non-zero read on empty reader, got %v", err)
 					}
-				} else if tc.readSize == 0 {
+				case tc.readSize == 0:
 					if n != 0 {
 						t.Errorf("Expected 0 bytes for zero-sized read, got %d", n)
 					}
 					if tc.dataSize > 0 && offset < int64(tc.dataSize) && err != nil {
 						t.Errorf("Expected no error for zero-sized read within bounds, got %v", err)
 					}
-				} else if tc.dataSize > 0 && offset >= int64(tc.dataSize) {
-					if err != io.EOF && err != ErrOffsetOutOfRange {
+				case tc.dataSize > 0 && offset >= int64(tc.dataSize):
+					if err != io.EOF && !errors.Is(err, ErrOffsetOutOfRange) {
 						t.Errorf("Expected EOF or ErrOffsetOutOfRange when reading past end, got %v", err)
 					}
 				}
