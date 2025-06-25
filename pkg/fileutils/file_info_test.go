@@ -55,7 +55,7 @@ func TestFileInfoTransformer_TransformIntoFileInfo(t *testing.T) {
 	if fi.Size() != 1234 {
 		t.Fatalf("size mismatch: want 1234, got %d", fi.Size())
 	}
-	if fi.Mode() != 0644 {
+	if fi.Mode() != 0o644 {
 		t.Fatalf("mode mismatch: want 0644, got %v", fi.Mode())
 	}
 	if !fi.ModTime().Equal(now) {

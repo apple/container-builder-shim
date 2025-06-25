@@ -26,8 +26,10 @@ import (
 	"github.com/apple/container-builder-shim/pkg/fileutils"
 )
 
-var _ io.ReadCloser = &File{}
-var _ io.Seeker = &File{}
+var (
+	_ io.ReadCloser = &File{}
+	_ io.Seeker     = &File{}
+)
 
 type File struct {
 	ctx      context.Context

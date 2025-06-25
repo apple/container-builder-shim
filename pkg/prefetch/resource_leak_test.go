@@ -156,7 +156,7 @@ func TestLongTermStability(t *testing.T) {
 		t.Fatalf("New prefetcher error: %v", err)
 	}
 	defer pf.Close()
-	var buf = make([]byte, 1024)
+	buf := make([]byte, 1024)
 	for i := 0; i < 1000; i++ {
 		off := int64((i * 1024) % len(mock.data))
 		if _, err := pf.ReadAt(buf, off); err != nil && err != io.EOF {

@@ -27,8 +27,10 @@ import (
 	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
-var _ contentx.Store = &ContentStoreProxy{}
-var _ stream.Stage = &ContentStoreProxy{}
+var (
+	_ contentx.Store = &ContentStoreProxy{}
+	_ stream.Stage   = &ContentStoreProxy{}
+)
 
 // A content store that proxies requests over the bidirectional grpc stream
 // Since buildkit only needs to read content, and never writes to content store,
@@ -83,12 +85,15 @@ func (r *ContentStoreProxy) String() string {
 func (r *ContentStoreProxy) Writer(ctx context.Context, opts ...contentx.WriterOpt) (contentx.Writer, error) {
 	panic("unimplemented")
 }
+
 func (r *ContentStoreProxy) Status(ctx context.Context, ref string) (contentx.Status, error) {
 	panic("unimplemented")
 }
+
 func (r *ContentStoreProxy) ListStatuses(ctx context.Context, filters ...string) ([]contentx.Status, error) {
 	panic("unimplemented")
 }
+
 func (r *ContentStoreProxy) Abort(ctx context.Context, ref string) error {
 	panic("unimplemented")
 }

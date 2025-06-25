@@ -103,7 +103,6 @@ func TestPrefetcherBasic(t *testing.T) {
 
 	buf := make([]byte, 1024)
 	n, err := prefetcher.ReadAt(buf, 1024)
-
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}

@@ -40,6 +40,7 @@ func newTestStage(name string) *testStage {
 func (t *testStage) Filter(*api.ClientStream) error {
 	return nil
 }
+
 func (t *testStage) String() string {
 	return t.name
 }

@@ -29,8 +29,10 @@ import (
 
 type FileInfos []*FileInfo
 
-var _ fs.FileInfo = &FileInfo{}
-var _ sort.Interface = FileInfos{}
+var (
+	_ fs.FileInfo    = &FileInfo{}
+	_ sort.Interface = FileInfos{}
+)
 
 type FileInfo struct {
 	NameVal    string

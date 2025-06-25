@@ -29,8 +29,10 @@ import (
 	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
-var _ console.File = &StdioProxy{}
-var ErrWriteOnlyStream = fmt.Errorf("stdio stream is write-only")
+var (
+	_                  console.File = &StdioProxy{}
+	ErrWriteOnlyStream              = fmt.Errorf("stdio stream is write-only")
+)
 
 // A io stream that proxies requests over the bidirectional grpc stream
 // It is used by buildkit to report build status
