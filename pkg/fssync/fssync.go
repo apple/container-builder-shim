@@ -30,9 +30,11 @@ import (
 	"google.golang.org/grpc"
 )
 
-var _ stream.Stage = &FSSyncProxy{}
-var _ session.Attachable = &FSSyncProxy{}
-var _ filesync.FileSyncServer = &FSSyncProxy{}
+var (
+	_ stream.Stage            = &FSSyncProxy{}
+	_ session.Attachable      = &FSSyncProxy{}
+	_ filesync.FileSyncServer = &FSSyncProxy{}
+)
 
 // A fsSync that proxies requests over the bidirectional grpc stream
 // It is used by buildkit to retrieve context directory and other build artifacts

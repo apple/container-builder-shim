@@ -32,8 +32,10 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-var _ io.ReadCloser = &readerAt{}
-var _ io.Seeker = &readerAt{}
+var (
+	_ io.ReadCloser = &readerAt{}
+	_ io.Seeker     = &readerAt{}
+)
 
 /*
 ReaderAt proxies content.ReaderAt over grpc stream to the caller

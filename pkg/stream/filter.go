@@ -18,8 +18,10 @@ package stream
 
 import "github.com/apple/container-builder-shim/pkg/api"
 
-type FilterFn func(*api.ClientStream) error
-type FilterByIDFn func(id string) FilterFn
+type (
+	FilterFn     func(*api.ClientStream) error
+	FilterByIDFn func(id string) FilterFn
+)
 
 type Filter interface {
 	Filter(*api.ClientStream) error

@@ -32,8 +32,10 @@ import (
 	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
-var _ stream.Stage = &ResolverProxy{}
-var _ llb.ImageMetaResolver = &ResolverProxy{}
+var (
+	_ stream.Stage          = &ResolverProxy{}
+	_ llb.ImageMetaResolver = &ResolverProxy{}
+)
 
 // A resolver that proxies requests over the bidirectional grpc stream
 // It is used by buildkit to resolve image names into digest SHAs
@@ -58,7 +60,7 @@ func (r *ResolverProxy) request(ctx context.Context, packet *api.ImageTransfer) 
 	cancellableCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	//logrus.Debugf("sending resolver packet: %v", packet)
+	// logrus.Debugf("sending resolver packet: %v", packet)
 	id := uuid.NewString()
 	packet.Id = id
 	resp, err := r.Request(cancellableCtx, &api.ServerStream{

@@ -127,7 +127,6 @@ func (b *UnimplementedBaseStage) Send(s *api.ServerStream) error {
 }
 
 func (b *UnimplementedBaseStage) Request(ctx context.Context, s *api.ServerStream, id string, filter FilterByIDFn) (*api.ClientStream, error) {
-
 	if dm, ok := b.demux.Load(id); ok {
 		return dm.(*Demultiplexer).Recv()
 	}
@@ -141,7 +140,6 @@ func (b *UnimplementedBaseStage) Request(ctx context.Context, s *api.ServerStrea
 	}
 
 	return dm.Recv()
-
 }
 
 func (b *UnimplementedBaseStage) RecvFilter(ctx context.Context, id string, filter FilterByIDFn) (*api.ClientStream, error) {

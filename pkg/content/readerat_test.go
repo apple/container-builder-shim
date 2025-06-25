@@ -31,8 +31,10 @@ import (
 	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
-var PayloadKey ctxKey
-var DemuxKey ctxKey
+var (
+	PayloadKey ctxKey
+	DemuxKey   ctxKey
+)
 
 var demuxes = map[string]context.Context{}
 
