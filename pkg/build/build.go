@@ -41,7 +41,7 @@ func Build(ctx context.Context, opts *BOpts) error {
 			grpc.MaxCallSendMsgSize(512<<20), // 512MB
 		),
 	}
-	clientOpts := []client.ClientOpt{}
+	var clientOpts []client.ClientOpt
 	for _, opt := range grpcOpts {
 		clientOpts = append(clientOpts, client.WithGRPCDialOption(opt))
 	}
@@ -83,7 +83,7 @@ func Build(ctx context.Context, opts *BOpts) error {
 		dest: outputPath,
 	}
 
-	exportsWithOutput := []client.ExportEntry{}
+	var exportsWithOutput []client.ExportEntry
 	for _, export := range exports {
 		export.Output = func(map[string]string) (io.WriteCloser, error) {
 			return wf, nil
@@ -128,7 +128,7 @@ func Build(ctx context.Context, opts *BOpts) error {
 		solveOpt.FrontendAttrs["build-arg:"+k] = v
 	}
 
-	platformStrings := []string{}
+	var platformStrings []string
 	for _, platform := range opts.Platforms {
 		platformStrings = append(platformStrings, platforms.Format(platforms.Normalize(platform)))
 	}
