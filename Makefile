@@ -50,19 +50,23 @@ fmt:	go-fmt update-licenses
 
 .PHONY: go-fmt
 go-fmt:
-	$(GO) fmt $(PKG)
+	$(GO) fmt -l -s -w $(PKG)
 
 .PHONY: vet
 vet:
 	$(GO) vet $(PKG)
 
+golangci-lint-install:
+	@scripts/install-tools.sh --golangci
+	
+.PHONY: go-lint
+go-lint: golangci-lint-install
+	$(GOLANGCI_LINT) config verify
+	gofmt -l -s -w $(PKG)
+	$(GOLANGCI_LINT) run --timeout=30m --fix ./...
+	
 .PHONY: lint
-lint:
-ifndef GOLANGCI_LINT
-	@echo "golangci-lint not found – skipping. Install from https://golangci-lint.run/welcome/install/ to enable." >&2
-else
-	$(GOLANGCI_LINT) run
-endif
+lint: go-lint
 
 .PHONY: tidy
 tidy:
@@ -117,4 +121,3 @@ release: fmt vet lint test build-linux docker-image
 clean:
 	$(GO) clean
 	rm -rf $(BUILD_DIR) coverage.out
-
