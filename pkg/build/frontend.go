@@ -165,7 +165,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			resolverOpts.ImageOpt = &sourceresolver.ResolveImageOpt{
 				ResolveMode: llb.ResolveModePreferLocal.String(),
 			}
-			_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, ref.String(), resolverOpts)
+			_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, resolvedBaseStageName.Result, resolverOpts)
 			if err != nil {
 				if err == reference.ErrObjectRequired {
 					return

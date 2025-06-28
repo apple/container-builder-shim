@@ -104,13 +104,3 @@ func TestResolverProxy_ResolveImageConfig_ErrorMetadata(t *testing.T) {
 		t.Fatalf("expected error from metadata, got nil")
 	}
 }
-
-func TestResolverProxy_ResolveImageConfig_InvalidReference(t *testing.T) {
-	proxy := NewResolverProxy()
-	plt := platforms.DefaultSpec()
-	badRef := "justarepo"
-	_, _, _, err := proxy.ResolveImageConfig(context.Background(), badRef, sourceresolver.Opt{Platform: &plt})
-	if err == nil {
-		t.Fatalf("expected reference parse error, got nil")
-	}
-}

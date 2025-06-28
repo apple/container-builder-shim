@@ -43,7 +43,7 @@ build: $(BUILD_DIR)
 
 .PHONY: build-linux
 build-linux: $(BUILD_DIR)
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux .
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux .
 
 .PHONY: fmt
 fmt:	go-fmt update-licenses
