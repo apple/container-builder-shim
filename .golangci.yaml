@@ -1,0 +1,114 @@
+version: "2"
+linters:
+  default: none
+  settings:
+    misspell:
+      locale: US
+    govet:
+      enable:
+        - shadow
+    staticcheck:
+      checks:
+        [
+          "all",
+          "-ST1000",
+          "-ST1001",
+          "-ST1003",
+          "-ST1005",
+          "-ST1012",
+          "-ST1016",
+          "-ST1020",
+          "-ST1021",
+          "-ST1022",
+          "-QF1001",
+          "-QF1003",
+          "-QF1008",
+        ]
+  exclusions:
+    generated: lax
+    presets: [comments, common-false-positives, legacy, std-error-handling]
+    rules:
+      - linters:
+          - dogsled
+          - errname
+          - exhaustive
+          - gomoddirectives
+          - govet
+          - interfacebloat
+          - musttag
+          - nakedret
+          - nilerr
+          - nilnil
+          - promlinter
+        text: .*
+    paths: [third_party, builtin$, examples$, vendor$]
+    warn-unused: true
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - contextcheck
+    - copyloopvar
+    - decorder
+    - dogsled
+    - dupword
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - errname
+    - exhaustive
+    - exptostd
+    - forbidigo
+    - ginkgolinter
+    - gocheckcompilerdirectives
+    - gochecksumtype
+    - gocritic
+    - goheader
+    - goprintffuncname
+    - gosec
+    - gosmopolitan
+    - govet
+    - grouper
+    - importas
+    - ineffassign
+    - interfacebloat
+    - intrange
+    - loggercheck
+    - makezero
+    - mirror
+    - misspell
+    - musttag
+    - nakedret
+    - nilerr
+    - nilnil
+    - noctx
+    - nosprintfhostport
+    - predeclared
+    - promlinter
+    - protogetter
+    - reassign
+    - sloglint
+    - staticcheck
+    - tagalign
+    - testableexamples
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+formatters:
+  enable: [gci, gofmt]
+  settings:
+    gci:
+      sections:
+        - standard
+        - defaul
+        - prefix(github.com/apple/container-builder-shim)
+        - blank
+        - dot
+  exclusions:
+    generated: lax
+    paths: [third_party, builtin$, examples$]
