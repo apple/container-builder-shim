@@ -141,6 +141,10 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 				return
 			}
 
+			if strings.EqualFold(resolvedBaseStageName.Result, "scratch") || strings.EqualFold(resolvedBaseStageName.Result, "context") {
+				return
+			}
+
 			ref, err := dref.ParseAnyReference(resolvedBaseStageName.Result)
 			if err != nil {
 				if err == reference.ErrObjectRequired {
