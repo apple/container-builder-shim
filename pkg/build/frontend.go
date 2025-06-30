@@ -165,6 +165,13 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			resolverOpts.ImageOpt = &sourceresolver.ResolveImageOpt{
 				ResolveMode: llb.ResolveModePreferLocal.String(),
 			}
+
+			// `resolvedBaseStageName.Result` is the image name as it was specified in the Dockerfile
+			// with the build args applied
+			// NOTE: DO NOT USE `ref.String()` in the call to ResolveImageConfig
+			// `ref`` is the qualified reference, with a default domain
+			// In case of local images, where there is no registry, resolution will fail
+			// due to the addition of the default domain.
 			_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, resolvedBaseStageName.Result, resolverOpts)
 			if err != nil {
 				if err == reference.ErrObjectRequired {
@@ -188,6 +195,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			}
 			name := strings.TrimSuffix(dref.FamiliarString(named), ":latest")
 
+			// pname constructs a platform-qualified image reference in the format buildkit requires for digest resolution
 			pname := name + "::" + platforms.FormatAll(platforms.Normalize(platform))
 			imgMetaMap := map[string][]byte{
 				exptypes.ExporterImageConfigKey: img,
