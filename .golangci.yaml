@@ -61,7 +61,6 @@ linters:
     - exhaustive
     - exptostd
     - forbidigo
-    - ginkgolinter
     - gocheckcompilerdirectives
     - gochecksumtype
     - gocritic
@@ -105,7 +104,7 @@ formatters:
     gci:
       sections:
         - standard
-        - defaul
+        - default
         - prefix(github.com/apple/container-builder-shim)
         - blank
         - dot

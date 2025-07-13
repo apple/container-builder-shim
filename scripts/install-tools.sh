@@ -28,15 +28,28 @@ install_golangci() {
       ci_install=true
   fi
   if [[ "$ci_install" == true ]]; then
-      curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/cc3567e3127d8530afb69be1b7bd20ba9ebcc7c1/install.sh \
-        | sh -s -- -b $(go env GOPATH)/bin "${GOLANGCI_LINTER_VERSION}"
+      curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/${GOLANGCI_LINTER_VERSION}/install.sh \
+        | sh -s -- -b .local/bin "${GOLANGCI_LINTER_VERSION}"
   fi
+}
+
+show_help() {
+cat << EOF
+tools installer
+
+Usage: $(basename "$0") <options>
+    -h, --help         Display help
+    --golangci         Install golangci linter
+EOF
 }
 
 function main() {
   case $1 in
     --golangci)
       install_golangci
+      ;;
+    -h|--help)
+      show_help
       ;;
     *)
       echo "unknown command" >&2
