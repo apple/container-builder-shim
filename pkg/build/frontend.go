@@ -129,7 +129,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 	states := map[string]stateMeta{}
 	stateLock := sync.Mutex{}
 
-	for _, stage := range stages {
+	for i, stage := range stages {
 		wg.Add(1)
 		go func(stage instructions.Stage) {
 			defer wg.Done()
@@ -142,6 +142,12 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			}
 
 			if strings.EqualFold(resolvedBaseStageName.Result, "scratch") || strings.EqualFold(resolvedBaseStageName.Result, "context") {
+				return
+			}
+
+			// if there's another stage with this name before the current stage, that will be used as the source
+			namedIndex, hasNamedStage := instructions.HasStage(stages, resolvedBaseStageName.Result)
+			if hasNamedStage && namedIndex < i {
 				return
 			}
 
