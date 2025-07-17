@@ -88,7 +88,7 @@ func Build(ctx context.Context, opts *BOpts) error {
 		export.Output = func(map[string]string) (io.WriteCloser, error) {
 			return wf, nil
 		}
-		export.Attrs["output"] = filepath.Join(opts.basePath, "out.tar")
+		export.Attrs["output"] = filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
 		if _, ok := export.Attrs["name"]; !ok {
 			export.Attrs["name"] = opts.Tag
 		}
