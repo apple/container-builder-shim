@@ -120,12 +120,14 @@ func (p *StreamPipeline) Run() error {
 				case err == nil:
 					stage.process(pkt)
 					handled = true
-					break
 				case errors.Is(err, ErrIgnorePacket):
 					continue
 				default: // real error
 					logrus.WithError(err).Warn("Filter error")
 					continue
+				}
+				if handled {
+					break
 				}
 			}
 			if !handled {
@@ -136,6 +138,6 @@ func (p *StreamPipeline) Run() error {
 
 	<-p.ctx.Done()
 	p.wg.Wait()
-	close(p.sendCh)
+	// Don't close sendCh - let it be garbage collected to avoid "send on closed channel" panic
 	return p.ctx.Err()
 }
