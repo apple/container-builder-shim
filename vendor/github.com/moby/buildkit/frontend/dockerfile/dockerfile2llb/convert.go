@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -138,7 +137,7 @@ func DockerfileLint(ctx context.Context, dt []byte, opt ConvertOpt) (*lint.LintR
 
 	_, err := toDispatchState(ctx, dt, opt)
 
-	var errLoc *parser.ErrorLocation
+	var errLoc *parser.LocationError
 	if err != nil {
 		buildErr := &lint.BuildError{
 			Message: err.Error(),
@@ -680,7 +679,10 @@ func toDispatchState(ctx context.Context, dt []byte, opt ConvertOpt) (*dispatchS
 			if d.platform != nil {
 				osName = d.platform.OS
 			}
-			d.image.Config.Env = append(d.image.Config.Env, "PATH="+system.DefaultPathEnv(osName))
+			// except for Windows, leave that to the OS. #5445
+			if osName != "windows" {
+				d.image.Config.Env = append(d.image.Config.Env, "PATH="+system.DefaultPathEnv(osName))
+			}
 		}
 
 		// initialize base metadata from image conf
@@ -935,27 +937,22 @@ func dispatch(d *dispatchState, cmd command, opt dispatchOpt) error {
 	case *instructions.WorkdirCommand:
 		err = dispatchWorkdir(d, c, true, &opt)
 	case *instructions.AddCommand:
-		var checksum digest.Digest
-		if c.Checksum != "" {
-			checksum, err = digest.Parse(c.Checksum)
-		}
-		if err == nil {
-			err = dispatchCopy(d, copyConfig{
-				params:          c.SourcesAndDest,
-				excludePatterns: c.ExcludePatterns,
-				source:          opt.buildContext,
-				isAddCommand:    true,
-				cmdToPrint:      c,
-				chown:           c.Chown,
-				chmod:           c.Chmod,
-				link:            c.Link,
-				keepGitDir:      c.KeepGitDir,
-				checksum:        checksum,
-				location:        c.Location(),
-				ignoreMatcher:   opt.dockerIgnoreMatcher,
-				opt:             opt,
-			})
-		}
+		err = dispatchCopy(d, copyConfig{
+			params:          c.SourcesAndDest,
+			excludePatterns: c.ExcludePatterns,
+			source:          opt.buildContext,
+			isAddCommand:    true,
+			cmdToPrint:      c,
+			chown:           c.Chown,
+			chmod:           c.Chmod,
+			link:            c.Link,
+			keepGitDir:      c.KeepGitDir,
+			checksum:        c.Checksum,
+			unpack:          c.Unpack,
+			location:        c.Location(),
+			ignoreMatcher:   opt.dockerIgnoreMatcher,
+			opt:             opt,
+		})
 		if err == nil {
 			for _, src := range c.SourcePaths {
 				if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") {
@@ -1219,7 +1216,7 @@ func dispatchRun(d *dispatchState, c *instructions.RunCommand, proxy *llb.ProxyE
 	// Run command can potentially access any file. Mark the full filesystem as used.
 	d.paths["/"] = struct{}{}
 
-	var args []string = c.CmdLine
+	var args = c.CmdLine
 	if len(c.Files) > 0 {
 		if len(args) != 1 || !c.PrependShell {
 			return errors.Errorf("parsing produced an invalid run command: %v", args)
@@ -1400,6 +1397,9 @@ func dispatchWorkdir(d *dispatchState, c *instructions.WorkdirCommand, commit bo
 			if user := d.image.Config.User; user != "" {
 				mkdirOpt = append(mkdirOpt, llb.WithUser(user))
 			}
+			if d.epoch != nil {
+				mkdirOpt = append(mkdirOpt, llb.WithCreatedTime(*d.epoch))
+			}
 			platform := opt.targetPlatform
 			if d.platform != nil {
 				platform = *d.platform
@@ -1465,8 +1465,8 @@ func dispatchCopy(d *dispatchState, cfg copyConfig) error {
 		if len(cfg.params.SourcePaths) != 1 {
 			return errors.New("checksum can't be specified for multiple sources")
 		}
-		if !isHTTPSource(cfg.params.SourcePaths[0]) {
-			return errors.New("checksum can't be specified for non-HTTP(S) sources")
+		if !isHTTPSource(cfg.params.SourcePaths[0]) && !isGitSource(cfg.params.SourcePaths[0]) {
+			return errors.New("checksum requires HTTP(S) or Git sources")
 		}
 	}
 
@@ -1514,6 +1514,9 @@ func dispatchCopy(d *dispatchState, cfg copyConfig) error {
 			if cfg.keepGitDir {
 				gitOptions = append(gitOptions, llb.KeepGitDir())
 			}
+			if cfg.checksum != "" {
+				gitOptions = append(gitOptions, llb.GitChecksum(cfg.checksum))
+			}
 			st := llb.Git(gitRef.Remote, commit, gitOptions...)
 			opts := append([]llb.CopyOption{&llb.CopyInfo{
 				Mode:           chopt,
@@ -1542,11 +1545,25 @@ func dispatchCopy(d *dispatchState, cfg copyConfig) error {
 				}
 			}
 
-			st := llb.HTTP(src, llb.Filename(f), llb.WithCustomName(pgName), llb.Checksum(cfg.checksum), dfCmd(cfg.params))
+			var checksum digest.Digest
+			if cfg.checksum != "" {
+				checksum, err = digest.Parse(cfg.checksum)
+				if err != nil {
+					return err
+				}
+			}
+
+			st := llb.HTTP(src, llb.Filename(f), llb.WithCustomName(pgName), llb.Checksum(checksum), dfCmd(cfg.params))
+
+			var unpack bool
+			if cfg.unpack != nil {
+				unpack = *cfg.unpack
+			}
 
 			opts := append([]llb.CopyOption{&llb.CopyInfo{
 				Mode:           chopt,
 				CreateDestPath: true,
+				AttemptUnpack:  unpack,
 			}}, copyOpt...)
 
 			if a == nil {
@@ -1580,12 +1597,17 @@ func dispatchCopy(d *dispatchState, cfg copyConfig) error {
 				return errors.Wrap(err, "removing drive letter")
 			}
 
+			unpack := cfg.isAddCommand
+			if cfg.unpack != nil {
+				unpack = *cfg.unpack
+			}
+
 			opts := append([]llb.CopyOption{&llb.CopyInfo{
 				Mode:                chopt,
 				FollowSymlinks:      true,
 				CopyDirContentsOnly: true,
 				IncludePatterns:     patterns,
-				AttemptUnpack:       cfg.isAddCommand,
+				AttemptUnpack:       unpack,
 				CreateDestPath:      true,
 				AllowWildcard:       true,
 				AllowEmptyWildcard:  true,
@@ -1669,11 +1691,12 @@ type copyConfig struct {
 	chmod           string
 	link            bool
 	keepGitDir      bool
-	checksum        digest.Digest
+	checksum        string
 	parents         bool
 	location        []parser.Range
 	ignoreMatcher   *patternmatcher.PatternMatcher
 	opt             dispatchOpt
+	unpack          *bool
 }
 
 func dispatchMaintainer(d *dispatchState, c *instructions.MaintainerCommand) error {
@@ -1705,7 +1728,7 @@ func dispatchOnbuild(d *dispatchState, c *instructions.OnbuildCommand) error {
 func dispatchCmd(d *dispatchState, c *instructions.CmdCommand, lint *linter.Linter) error {
 	validateUsedOnce(c, &d.cmd, lint)
 
-	var args []string = c.CmdLine
+	var args = c.CmdLine
 	if c.PrependShell {
 		if len(d.image.Config.Shell) == 0 {
 			msg := linter.RuleJSONArgsRecommended.Format(c.Name())
@@ -1721,7 +1744,7 @@ func dispatchCmd(d *dispatchState, c *instructions.CmdCommand, lint *linter.Lint
 func dispatchEntrypoint(d *dispatchState, c *instructions.EntrypointCommand, lint *linter.Linter) error {
 	validateUsedOnce(c, &d.entrypoint, lint)
 
-	var args []string = c.CmdLine
+	var args = c.CmdLine
 	if c.PrependShell {
 		if len(d.image.Config.Shell) == 0 {
 			msg := linter.RuleJSONArgsRecommended.Format(c.Name())
@@ -2260,11 +2283,15 @@ func isHTTPSource(src string) bool {
 	if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") {
 		return false
 	}
+	return !isGitSource(src)
+}
+
+func isGitSource(src string) bool {
 	// https://github.com/ORG/REPO.git is a git source, not an http source
 	if gitRef, gitErr := gitutil.ParseGitRef(src); gitRef != nil && gitErr == nil {
-		return false
+		return true
 	}
-	return true
+	return false
 }
 
 func isEnabledForStage(stage string, value string) bool {
@@ -2383,8 +2410,8 @@ func mergeLocations(locations ...[]parser.Range) []parser.Range {
 		return allRanges
 	}
 
-	sort.Slice(allRanges, func(i, j int) bool {
-		return allRanges[i].Start.Line < allRanges[j].Start.Line
+	slices.SortFunc(allRanges, func(a, b parser.Range) int {
+		return a.Start.Line - b.Start.Line
 	})
 
 	location := []parser.Range{}

@@ -279,7 +279,17 @@ func (fc *frontendClient) Inputs(ctx context.Context) (map[string]llb.State, err
 
 func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c gateway.Client, states map[string]stateMeta) (gateway.Reference, []byte, error) {
 	capset := pb.Caps.CapSet(utils.Caps().All())
-	frontendOpt := map[string]string{}
+	frontendOpt := map[string]string{
+		// In v0.21.0, this was being defaulted to "true"
+		// We want to disable it, as it could break fssync
+		"local.metadatatransfer": "false",
+
+		// https://github.com/moby/buildkit/pull/5899 introduced a change
+		// that ignore apple's xattrs while diffing. This breaks differ
+		// breaks due to lack of xattrs, so it is turned off
+		"local.differ": "none",
+	}
+
 	frontendInputs := map[string]*pb.Definition{}
 	for k, v := range states {
 		frontendOpt["context:"+k] = "input:" + k

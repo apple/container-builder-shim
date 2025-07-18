@@ -70,6 +70,10 @@ func (d *Demultiplexer) Accept(c *api.ClientStream) error {
 		return d.ctx.Err()
 	case d.ch <- c:
 		return nil
+	default:
+		// Channel is full - clean it up to prevent future packets from being sent here
+		d.closeFn(d.id)
+		return ErrDemuxChannelFull
 	}
 }
 
