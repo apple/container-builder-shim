@@ -106,7 +106,7 @@ func (p *StreamPipeline) Run() error {
 		for {
 			pkt, err := p.raw.Recv()
 			if err != nil {
-				if err != io.EOF {
+				if err != io.EOF && err != context.Canceled {
 					logrus.WithError(err).Error("Recv error")
 				}
 				p.cancel()

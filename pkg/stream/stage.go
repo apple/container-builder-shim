@@ -76,6 +76,10 @@ func (b *UnimplementedBaseStage) run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			b.demux.Range(func(key, value interface{}) bool {
+				b.demux.Delete(key)
+				return true
+			})
 			return ctx.Err()
 
 		case c := <-b.recvCh:
@@ -101,6 +105,7 @@ func (b *UnimplementedBaseStage) run(ctx context.Context) error {
 			handler := v.(*Demultiplexer)
 
 			if handler.Closed() {
+				b.demux.Delete(handler.id)
 				logrus.WithFields(logrus.Fields{
 					"build_id":       c.BuildId,
 					"ImageTransfer?": c.GetImageTransfer() != nil,
@@ -109,8 +114,12 @@ func (b *UnimplementedBaseStage) run(ctx context.Context) error {
 				}).WithError(handler.Err()).Debug("handler already closed")
 				continue
 			}
+
 			if err := handler.Accept(c); err != nil && err != ErrIgnorePacket {
-				logrus.WithError(err).Warn("handler refused packet")
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"build_id":       c.BuildId,
+					"handler_closed": handler.Closed(),
+				}).Warn("handler refused packet")
 			}
 		}
 	}
@@ -122,6 +131,10 @@ func (b *UnimplementedBaseStage) Send(s *api.ServerStream) error {
 	case b.sendCh <- s:
 		return nil
 	case <-time.After(5 * time.Second):
+		logrus.WithFields(logrus.Fields{
+			"build_id":    s.BuildId,
+			"packet_type": fmt.Sprintf("%T", s.PacketType),
+		}).Error("Send blocked for 5s")
 		return ErrSendStreamBlocked
 	}
 }

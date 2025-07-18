@@ -101,7 +101,7 @@ func (r *StdioProxy) Filter(c *api.ClientStream) error {
 					Width:  uint16(termCmd.Cols),
 				})
 			}
-			return stream.ErrIgnorePacket
+			return nil
 		case "ack":
 			return nil
 		default:
@@ -120,10 +120,7 @@ func (r *StdioProxy) Write(p []byte) (int, error) {
 	copy(r.buf, p)
 
 	id := uuid.NewString()
-	cancellableCtx, cancel := context.WithCancel(r.ctx)
-	defer cancel()
-
-	if _, err := r.Request(cancellableCtx, &api.ServerStream{
+	_, err := r.Request(r.ctx, &api.ServerStream{
 		BuildId: id,
 		PacketType: &api.ServerStream_Io{
 			Io: &api.IO{
@@ -131,7 +128,8 @@ func (r *StdioProxy) Write(p []byte) (int, error) {
 				Data: r.buf[0:len(p)],
 			},
 		},
-	}, id, stream.FilterByBuildID); err != nil {
+	}, id, stream.FilterByBuildID)
+	if err != nil {
 		return 0, err
 	}
 	return len(r.buf[0:len(p)]), nil
