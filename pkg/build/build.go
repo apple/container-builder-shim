@@ -18,6 +18,8 @@ package build
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,6 +31,7 @@ import (
 	"github.com/moby/buildkit/cmd/buildctl/build"
 	"github.com/moby/buildkit/session"
 	"github.com/sirupsen/logrus"
+	"github.com/tonistiigi/go-csvvalue"
 	"google.golang.org/grpc"
 )
 
@@ -53,7 +56,7 @@ func Build(ctx context.Context, opts *BOpts) error {
 	}
 	defer buildkit.Close()
 
-	exports, err := build.ParseOutput(opts.Outputs)
+	exports, err := parseOutput(opts.Outputs)
 	if err != nil {
 		return err
 	}
@@ -85,10 +88,21 @@ func Build(ctx context.Context, opts *BOpts) error {
 
 	exportsWithOutput := []client.ExportEntry{}
 	for _, export := range exports {
-		export.Output = func(map[string]string) (io.WriteCloser, error) {
-			return wf, nil
+		switch export.Type {
+		case client.ExporterLocal:
+			localDest := filepath.Join(GlobalExportPath, opts.BuildID, "local")
+			os.MkdirAll(localDest, 0o755)
+			if export.OutputDir == "" {
+				export.OutputDir = localDest
+			}
+			export.Attrs["dest"] = localDest
+		default: // oci, tar
+			export.Output = func(map[string]string) (io.WriteCloser, error) {
+				return wf, nil
+			}
+			export.Attrs["output"] = filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
 		}
-		export.Attrs["output"] = filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
+
 		if _, ok := export.Attrs["name"]; !ok {
 			export.Attrs["name"] = opts.Tag
 		}
@@ -182,4 +196,69 @@ func (w *wrappedWriteCloser) Close() error {
 		return err
 	}
 	return nil
+}
+
+// parseOutput parses CSV output strings and returns ExportEntry slice.
+// It validates the output types and allows type=local without dest field.
+// Supported types: oci, tar, local
+func parseOutput(outputs []string) ([]client.ExportEntry, error) {
+	var entries []client.ExportEntry
+
+	for _, output := range outputs {
+		entry, err := parseOutputCSV(output)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+
+	return entries, nil
+}
+
+// parseOutputCSV parses a single CSV output string into an ExportEntry
+func parseOutputCSV(output string) (client.ExportEntry, error) {
+	entry := client.ExportEntry{
+		Attrs: make(map[string]string),
+	}
+
+	// Parse CSV fields
+	fields, err := csvvalue.Fields(output, nil)
+	if err != nil {
+		return entry, fmt.Errorf("failed to parse CSV: %w", err)
+	}
+
+	// Process each field
+	for _, field := range fields {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok {
+			return entry, fmt.Errorf("invalid field format: %s (expected key=value)", field)
+		}
+
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.TrimSpace(value)
+
+		switch key {
+		case "type":
+			entry.Type = value
+		default:
+			entry.Attrs[key] = value
+		}
+	}
+
+	// Validate type is provided
+	if entry.Type == "" {
+		return entry, errors.New("output type is required (type=<type>)")
+	}
+
+	// Validate supported types
+	switch entry.Type {
+	case "oci", "tar", "local":
+		// These are the supported types
+	default:
+		return entry, fmt.Errorf("unsupported output type: %s (supported: oci, tar, local)", entry.Type)
+	}
+
+	// No path validation - just return the parsed entry
+
+	return entry, nil
 }
