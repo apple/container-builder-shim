@@ -135,7 +135,8 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			defer wg.Done()
 
 			shlex := shell.NewLex(dockerfile.EscapeToken)
-			resolvedBaseStageName, err := shlex.ProcessWordWithMatches(stage.BaseName, utils.NewMapGetter(bopts.BuildArgs))
+			resolvedGlobalArgs := globalArgs(utils.BuildPlatforms()[0], platform, bopts.BuildArgs, bopts.Target)
+			resolvedBaseStageName, err := shlex.ProcessWordWithMatches(stage.BaseName, resolvedGlobalArgs)
 			if err != nil {
 				errCh <- fmt.Errorf("invalid arg for stage[%s]: %v", stage.BaseName, err)
 				return
@@ -143,6 +144,22 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 
 			if strings.EqualFold(resolvedBaseStageName.Result, "scratch") || strings.EqualFold(resolvedBaseStageName.Result, "context") {
 				return
+			}
+
+			// if the platform is specified in the stage, use it
+			stagePlatform := platform
+			if stage.Platform != "" {
+				resolvedStagePlatform, err := shlex.ProcessWordWithMatches(stage.Platform, resolvedGlobalArgs)
+				if err != nil {
+					errCh <- fmt.Errorf("invalid platform for stage[%s]: %v", stage.BaseName, err)
+					return
+				}
+				platform, err := platforms.Parse(resolvedStagePlatform.Result)
+				if err != nil {
+					errCh <- fmt.Errorf("invalid platform for stage[%s]: %v", stage.BaseName, err)
+					return
+				}
+				stagePlatform = platform
 			}
 
 			// if there's another stage with this name before the current stage, that will be used as the source
@@ -164,7 +181,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			clog("[resolver] fetching image...%s", ref.String())
 
 			resolverOpts := sourceresolver.Opt{
-				Platform: &platform,
+				Platform: &stagePlatform,
 			}
 			resolverOpts.OCILayoutOpt = &sourceresolver.ResolveOCILayoutOpt{
 				Store: sourceresolver.ResolveImageConfigOptStore{
@@ -196,7 +213,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 				fqdn = fqdn + "@" + digest.String()
 			}
 			logrus.WithField("ref", fqdn).Infof("creating llb")
-			st := llb.OCILayout(fqdn, llb.OCIStore("", "container"), llb.Platform(platform))
+			st := llb.OCILayout(fqdn, llb.OCIStore("", "container"), llb.Platform(stagePlatform))
 
 			named, err := dref.ParseNormalizedNamed(ref.String())
 			if err != nil {
@@ -206,7 +223,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			name := strings.TrimSuffix(dref.FamiliarString(named), ":latest")
 
 			// pname constructs a platform-qualified image reference in the format buildkit requires for digest resolution
-			pname := name + "::" + platforms.FormatAll(platforms.Normalize(platform))
+			pname := name + "::" + platforms.FormatAll(platforms.Normalize(stagePlatform))
 			imgMetaMap := map[string][]byte{
 				exptypes.ExporterImageConfigKey: img,
 			}
@@ -221,7 +238,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			defer stateLock.Unlock()
 
 			states[pname] = stateMeta{
-				state:   st.Platform(platform),
+				state:   st.Platform(stagePlatform),
 				imgMeta: imgMeta,
 			}
 		}(stage)
@@ -376,4 +393,27 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		return nil, nil, err
 	}
 	return ref, cfgJSON, nil
+}
+
+func globalArgs(buildPlatform, targetPlatform ocispecs.Platform, buildArgs map[string]string, target string) utils.MapGetter {
+	if target == "" {
+		target = "default"
+	}
+	args := map[string]string{
+		"BUILDPLATFORM":   platforms.Format(buildPlatform),
+		"BUILDOS":         buildPlatform.OS,
+		"BUILDOSVERSION":  buildPlatform.OSVersion,
+		"BUILDARCH":       buildPlatform.Architecture,
+		"BUILDVARIANT":    buildPlatform.Variant,
+		"TARGETPLATFORM":  platforms.FormatAll(targetPlatform),
+		"TARGETOS":        targetPlatform.OS,
+		"TARGETOSVERSION": targetPlatform.OSVersion,
+		"TARGETARCH":      targetPlatform.Architecture,
+		"TARGETVARIANT":   targetPlatform.Variant,
+		"TARGETSTAGE":     target,
+	}
+	for k, v := range buildArgs {
+		args[k] = v
+	}
+	return utils.NewMapGetter(args)
 }
