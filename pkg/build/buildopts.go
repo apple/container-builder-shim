@@ -29,6 +29,7 @@ import (
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"github.com/apple/container-builder-shim/pkg/build/utils"
 	"github.com/apple/container-builder-shim/pkg/content"
 	"github.com/apple/container-builder-shim/pkg/fssync"
 	"github.com/apple/container-builder-shim/pkg/resolver"
@@ -63,6 +64,7 @@ type BOpts struct {
 	Dockerfile     []byte
 	Tag            string
 	ContextDir     string
+	BuildPlatform  ocispecs.Platform
 	Platforms      []ocispecs.Platform
 	NoCache        bool
 	Target         string
@@ -130,6 +132,8 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	if c, ok := first(KeyContext); ok {
 		ctxDir = c
 	}
+
+	bp := utils.BuildPlatforms()
 
 	pls, err := func() ([]ocispecs.Platform, error) {
 		pls := []ocispecs.Platform{}
@@ -231,6 +235,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		BuildID:        buildID,
 		Dockerfile:     dockerfileBytes,
 		Tag:            tag,
+		BuildPlatform:  bp[0],
 		Platforms:      pls,
 		ContextDir:     ctxDir,
 		ContentStore:   contentProxy,
