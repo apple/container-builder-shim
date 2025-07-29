@@ -146,20 +146,20 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 				return
 			}
 
-			// if the platform is specified in the stage, use it
+			// if platform is specified for the stage, parse and use as the target platform
 			stagePlatform := platform
 			if stage.Platform != "" {
-				resolvedStagePlatform, err := shlex.ProcessWordWithMatches(stage.Platform, resolvedGlobalArgs)
+				resolvedStagePlatformStr, err := shlex.ProcessWordWithMatches(stage.Platform, resolvedGlobalArgs)
 				if err != nil {
 					errCh <- fmt.Errorf("invalid platform for stage[%s]: %v", stage.BaseName, err)
 					return
 				}
-				platform, err := platforms.Parse(resolvedStagePlatform.Result)
+				resolvedStagePlatform, err := platforms.Parse(resolvedStagePlatformStr.Result)
 				if err != nil {
 					errCh <- fmt.Errorf("invalid platform for stage[%s]: %v", stage.BaseName, err)
 					return
 				}
-				stagePlatform = platform
+				stagePlatform = resolvedStagePlatform
 			}
 
 			// if there's another stage with this name before the current stage, that will be used as the source

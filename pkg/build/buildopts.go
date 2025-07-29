@@ -133,7 +133,10 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		ctxDir = c
 	}
 
-	bp := utils.BuildPlatforms()
+	buildPlatform := platforms.DefaultSpec()
+	if bps := utils.BuildPlatforms(); len(bps) > 0 {
+		buildPlatform = bps[0]
+	}
 
 	pls, err := func() ([]ocispecs.Platform, error) {
 		pls := []ocispecs.Platform{}
@@ -235,7 +238,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		BuildID:        buildID,
 		Dockerfile:     dockerfileBytes,
 		Tag:            tag,
-		BuildPlatform:  bp[0],
+		BuildPlatform:  buildPlatform,
 		Platforms:      pls,
 		ContextDir:     ctxDir,
 		ContentStore:   contentProxy,
