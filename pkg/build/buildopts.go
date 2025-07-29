@@ -64,7 +64,7 @@ type BOpts struct {
 	Dockerfile     []byte
 	Tag            string
 	ContextDir     string
-	BuildPlatform  ocispecs.Platform
+	BuildPlatforms []ocispecs.Platform
 	Platforms      []ocispecs.Platform
 	NoCache        bool
 	Target         string
@@ -133,9 +133,9 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		ctxDir = c
 	}
 
-	buildPlatform := platforms.DefaultSpec()
-	if bps := utils.BuildPlatforms(); len(bps) > 0 {
-		buildPlatform = bps[0]
+	bps := utils.BuildPlatforms()
+	if len(bps) == 0 {
+		bps = append(bps, platforms.DefaultSpec())
 	}
 
 	pls, err := func() ([]ocispecs.Platform, error) {
@@ -238,7 +238,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		BuildID:        buildID,
 		Dockerfile:     dockerfileBytes,
 		Tag:            tag,
-		BuildPlatform:  buildPlatform,
+		BuildPlatforms: bps,
 		Platforms:      pls,
 		ContextDir:     ctxDir,
 		ContentStore:   contentProxy,

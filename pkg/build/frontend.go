@@ -135,7 +135,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			defer wg.Done()
 
 			shlex := shell.NewLex(dockerfile.EscapeToken)
-			resolvedGlobalArgs := globalArgs(bopts.BuildPlatform, platform, bopts.BuildArgs, bopts.Target)
+			resolvedGlobalArgs := globalArgs(bopts.BuildPlatforms[0], platform, bopts.BuildArgs, bopts.Target)
 			resolvedBaseStageName, err := shlex.ProcessWordWithMatches(stage.BaseName, resolvedGlobalArgs)
 			if err != nil {
 				errCh <- fmt.Errorf("invalid arg for stage[%s]: %v", stage.BaseName, err)
@@ -334,7 +334,7 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		Client:         cl,
 	}
 
-	convertOpt.BuildPlatforms = []ocispecs.Platform{bopts.BuildPlatform}
+	convertOpt.BuildPlatforms = bopts.BuildPlatforms
 	convertOpt.TargetPlatforms = bopts.Platforms
 	convertOpt.BuildArgs = bopts.BuildArgs
 	convertOpt.Labels = bopts.Labels

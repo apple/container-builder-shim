@@ -351,7 +351,7 @@ func TestResolveStates(t *testing.T) {
 	tests := []struct {
 		name                  string
 		dockerfile            string
-		buildPlatform         ocispecs.Platform
+		buildPlatforms        []ocispecs.Platform
 		targetPlatform        ocispecs.Platform
 		buildArgs             map[string]string
 		target                string
@@ -365,7 +365,7 @@ func TestResolveStates(t *testing.T) {
 			name: "invalid dockerfile syntax should error",
 			dockerfile: `INVALID INSTRUCTION
 FROM alpine:latest`,
-			buildPlatform:         ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildPlatforms:        []ocispecs.Platform{{OS: "linux", Architecture: "amd64"}},
 			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:             map[string]string{},
 			target:                "",
@@ -378,7 +378,7 @@ FROM alpine:latest`,
 			name: "FROM with invalid platform should error",
 			dockerfile: `FROM --platform=not-a-valid-platform alpine:latest
 RUN echo "hello"`,
-			buildPlatform:         ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildPlatforms:        []ocispecs.Platform{{OS: "linux", Architecture: "amd64"}},
 			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:             map[string]string{},
 			target:                "",
@@ -391,7 +391,7 @@ RUN echo "hello"`,
 			name: "FROM with invalid platform from build arg should error",
 			dockerfile: `FROM --platform=$BAD_PLATFORM alpine:latest
 RUN echo "hello"`,
-			buildPlatform:         ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildPlatforms:        []ocispecs.Platform{{OS: "linux", Architecture: "amd64"}},
 			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:             map[string]string{"BAD_PLATFORM": "not-a-valid-platform"},
 			target:                "",
@@ -405,7 +405,7 @@ RUN echo "hello"`,
 			name: "FROM scratch with platform should be skipped",
 			dockerfile: `FROM --platform=linux/arm64 scratch
 COPY app /app`,
-			buildPlatform:         ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildPlatforms:        []ocispecs.Platform{{OS: "linux", Architecture: "amd64"}},
 			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:             map[string]string{},
 			target:                "",
@@ -418,7 +418,7 @@ COPY app /app`,
 			name: "FROM context with platform variables",
 			dockerfile: `FROM --platform=$BUILDPLATFORM context
 COPY app /app`,
-			buildPlatform:         ocispecs.Platform{OS: "darwin", Architecture: "arm64"},
+			buildPlatforms:        []ocispecs.Platform{{OS: "darwin", Architecture: "arm64"}},
 			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:             map[string]string{},
 			target:                "",
@@ -431,7 +431,7 @@ COPY app /app`,
 			name: "FROM with build args overriding platform vars (context)",
 			dockerfile: `FROM --platform=$CUSTOM_PLATFORM context
 COPY app /app`,
-			buildPlatform:         ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildPlatforms:        []ocispecs.Platform{{OS: "linux", Architecture: "amd64"}},
 			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:             map[string]string{"CUSTOM_PLATFORM": "windows/amd64"},
 			target:                "",
@@ -447,7 +447,7 @@ COPY app /build
 
 FROM --platform=$TARGETPLATFORM context
 COPY --from=build /build /app`,
-			buildPlatform:         ocispecs.Platform{OS: "darwin", Architecture: "arm64"},
+			buildPlatforms:        []ocispecs.Platform{{OS: "darwin", Architecture: "arm64"}},
 			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:             map[string]string{},
 			target:                "",
@@ -461,7 +461,7 @@ COPY --from=build /build /app`,
 			name: "FROM alpine with TARGETPLATFORM",
 			dockerfile: `FROM --platform=$TARGETPLATFORM alpine:latest
 RUN echo "hello"`,
-			buildPlatform:  ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildPlatforms: []ocispecs.Platform{{OS: "linux", Architecture: "amd64"}},
 			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "arm64"},
 			buildArgs:      map[string]string{},
 			target:         "",
@@ -478,7 +478,7 @@ RUN echo "hello"`,
 			name: "FROM nginx with BUILDPLATFORM",
 			dockerfile: `FROM --platform=$BUILDPLATFORM nginx:alpine
 RUN echo "hello"`,
-			buildPlatform:  ocispecs.Platform{OS: "darwin", Architecture: "arm64"},
+			buildPlatforms: []ocispecs.Platform{{OS: "darwin", Architecture: "arm64"}},
 			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:      map[string]string{},
 			target:         "",
@@ -495,7 +495,10 @@ RUN echo "hello"`,
 			name: "FROM with build args overriding platform vars",
 			dockerfile: `FROM --platform=$CUSTOM_PLATFORM redis:alpine
 RUN echo "hello"`,
-			buildPlatform:  ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildPlatforms: []ocispecs.Platform{
+				{OS: "linux", Architecture: "amd64"},
+				{OS: "linux", Architecture: "arm64"},
+			},
 			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:      map[string]string{"CUSTOM_PLATFORM": "windows/amd64"},
 			target:         "",
@@ -512,7 +515,10 @@ RUN echo "hello"`,
 			name: "FROM with platform variant",
 			dockerfile: `FROM --platform=linux/arm/v7 node:18-alpine
 RUN npm install`,
-			buildPlatform:  ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildPlatforms: []ocispecs.Platform{
+				{OS: "linux", Architecture: "amd64"},
+				{OS: "darwin", Architecture: "arm64"},
+			},
 			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:      map[string]string{},
 			target:         "",
@@ -530,7 +536,7 @@ RUN npm install`,
 			dockerfile: `ARG BASE_IMAGE=postgres:13
 FROM --platform=$TARGETPLATFORM $BASE_IMAGE
 RUN echo "hello"`,
-			buildPlatform:  ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildPlatforms: []ocispecs.Platform{{OS: "linux", Architecture: "amd64"}},
 			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "arm64"},
 			buildArgs:      map[string]string{"BASE_IMAGE": "mysql:8.0"},
 			target:         "",
@@ -550,7 +556,7 @@ RUN go build -o app main.go
 
 FROM --platform=$TARGETPLATFORM alpine:latest
 COPY --from=builder /app /app`,
-			buildPlatform:  ocispecs.Platform{OS: "darwin", Architecture: "arm64"},
+			buildPlatforms: []ocispecs.Platform{{OS: "darwin", Architecture: "arm64"}},
 			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "amd64"},
 			buildArgs:      map[string]string{},
 			target:         "",
@@ -562,6 +568,54 @@ COPY --from=builder /app /app`,
 				{
 					ref:      "alpine:latest",
 					platform: &ocispecs.Platform{OS: "linux", Architecture: "amd64"}, // Should use TARGETPLATFORM
+				},
+			},
+			expectedStates: 2,
+			wantErr:        false,
+		},
+		{
+			name: "Multiple build platforms - uses first",
+			dockerfile: `FROM --platform=$BUILDPLATFORM alpine:latest
+RUN echo "hello"`,
+			buildPlatforms: []ocispecs.Platform{
+				{OS: "linux", Architecture: "amd64"},
+				{OS: "linux", Architecture: "arm64"},
+			},
+			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildArgs:      map[string]string{},
+			target:         "",
+			expectedResolverCalls: []testResolverCall{
+				{
+					ref:      "alpine:latest",
+					platform: &ocispecs.Platform{OS: "linux", Architecture: "amd64"}, // Should use first BUILDPLATFORM
+				},
+			},
+			expectedStates: 1,
+			wantErr:        false,
+		},
+		{
+			name: "Multiple build platforms with cross-compilation",
+			dockerfile: `FROM --platform=$BUILDPLATFORM golang:1.19 AS builder
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o app main.go
+
+FROM --platform=$TARGETPLATFORM alpine:latest
+COPY --from=builder /app /app`,
+			buildPlatforms: []ocispecs.Platform{
+				{OS: "linux", Architecture: "amd64"},
+				{OS: "darwin", Architecture: "arm64"},
+				{OS: "windows", Architecture: "amd64"},
+			},
+			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "arm64"},
+			buildArgs:      map[string]string{},
+			target:         "",
+			expectedResolverCalls: []testResolverCall{
+				{
+					ref:      "golang:1.19",
+					platform: &ocispecs.Platform{OS: "linux", Architecture: "amd64"}, // Should use first BUILDPLATFORM
+				},
+				{
+					ref:      "alpine:latest",
+					platform: &ocispecs.Platform{OS: "linux", Architecture: "arm64"}, // Should use TARGETPLATFORM
 				},
 			},
 			expectedStates: 2,
@@ -583,11 +637,11 @@ COPY --from=builder /app /app`,
 
 			// Create BOpts with the intercepting resolver
 			bopts := &BOpts{
-				Dockerfile:    []byte(tt.dockerfile),
-				BuildPlatform: tt.buildPlatform,
-				BuildArgs:     tt.buildArgs,
-				Target:        tt.target,
-				Resolver:      interceptor.ResolverProxy,
+				Dockerfile:     []byte(tt.dockerfile),
+				BuildPlatforms: tt.buildPlatforms,
+				BuildArgs:      tt.buildArgs,
+				Target:         tt.target,
+				Resolver:       interceptor.ResolverProxy,
 			}
 
 			clog := func(format string, params ...any) {
