@@ -23,12 +23,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/platforms"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"github.com/apple/container-builder-shim/pkg/build/utils"
 	"github.com/apple/container-builder-shim/pkg/content"
 	"github.com/apple/container-builder-shim/pkg/fssync"
 	"github.com/apple/container-builder-shim/pkg/resolver"
@@ -63,6 +64,7 @@ type BOpts struct {
 	Dockerfile     []byte
 	Tag            string
 	ContextDir     string
+	BuildPlatforms []ocispecs.Platform
 	Platforms      []ocispecs.Platform
 	NoCache        bool
 	Target         string
@@ -129,6 +131,11 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	ctxDir := "."
 	if c, ok := first(KeyContext); ok {
 		ctxDir = c
+	}
+
+	bps := utils.BuildPlatforms()
+	if len(bps) == 0 {
+		bps = append(bps, platforms.DefaultSpec())
 	}
 
 	pls, err := func() ([]ocispecs.Platform, error) {
@@ -231,6 +238,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		BuildID:        buildID,
 		Dockerfile:     dockerfileBytes,
 		Tag:            tag,
+		BuildPlatforms: bps,
 		Platforms:      pls,
 		ContextDir:     ctxDir,
 		ContentStore:   contentProxy,
