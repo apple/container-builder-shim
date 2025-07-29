@@ -16,22 +16,28 @@ jobs:
   build:
     runs-on: [self-hosted, macos, sequoia, ARM64]
     timeout-minutes: 30
-    steps: 
+    steps:
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23.2'
+          go-version: "1.23.2"
       - name: Checkout repository
-        uses: actions/checkout@v4 
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Check formatting
-        run: | 
+        run: |
           ./scripts/install-hawkeye.sh
           make fmt
           git diff
           if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
-      - name: Check protobufs 
-        run: | 
+      - name: Verify linter configuration and Lint go code
+        uses: golangci/golangci-lint-action@v8
+        with:
+          verify: true
+          args: --timeout=30m
+          version: v2.1.6
+      - name: Check protobufs
+        run: |
           make go-protos
           if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
       - name: Build
