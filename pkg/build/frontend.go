@@ -378,9 +378,37 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		return nil, nil, err
 	}
 
-	// This only happens when the dockerfile is just `FROM scratch`
+	// Handle metadata-only builds (ENV/ARG/LABEL without RUN/COPY/ADD)
 	if ref == nil {
-		return nil, nil, ErrNoBuildDirectives
+		if img == nil {
+			return nil, nil, ErrNoBuildDirectives
+		}
+
+		// OCI manifests require a layers array (cannot be null)
+		const metadataOnlyMarker = "/.container-metadata-only"
+		stateWithLayer := llb.Scratch().
+			File(llb.Mkfile(metadataOnlyMarker, 0644, []byte("# This image contains only metadata (ENV/ARG/LABEL)\n"))).
+			Platform(pl)
+
+		layerDef, err := stateWithLayer.Marshal(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		layerResult, err := c.Solve(ctx, gateway.SolveRequest{
+			Evaluate:       false,
+			Definition:     layerDef.ToPB(),
+			FrontendOpt:    frontendOpt,
+			FrontendInputs: frontendInputs,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+
+		ref, err = layerResult.SingleRef()
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	_, err = ref.ToState()

@@ -621,6 +621,93 @@ COPY --from=builder /app /app`,
 			expectedStates: 2,
 			wantErr:        false,
 		},
+		// Environment-only Dockerfile tests
+		{
+			name: "FROM scratch with only ENV directives",
+			dockerfile: `FROM scratch
+
+ARG BUILD_DATE
+ENV TERM=xterm \
+    BUILD_DATE=${BUILD_DATE}`,
+			buildPlatforms:        []ocispecs.Platform{{OS: "linux", Architecture: "arm64"}},
+			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "arm64"},
+			buildArgs:             map[string]string{"BUILD_DATE": "2025-01-01"},
+			target:                "",
+			expectedResolverCalls: []testResolverCall{}, // No resolver calls for scratch
+			expectedStates:        0,
+			wantErr:               false,
+			errContains:           "",
+		},
+		{
+			name: "FROM alpine with only ENV and LABEL",
+			dockerfile: `FROM alpine:latest
+ENV APP_VERSION=1.0.0 \
+    APP_NAME=myapp
+LABEL maintainer="test@example.com" \
+      version="1.0.0"`,
+			buildPlatforms: []ocispecs.Platform{{OS: "linux", Architecture: "arm64"}},
+			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "arm64"},
+			buildArgs:      map[string]string{},
+			target:         "",
+			expectedResolverCalls: []testResolverCall{
+				{ref: "alpine:latest", platform: &ocispecs.Platform{OS: "linux", Architecture: "arm64"}},
+			},
+			expectedStates: 1,
+			wantErr:        false,
+			errContains:    "",
+		},
+		{
+			name: "Complex ARG and ENV combinations",
+			dockerfile: `FROM scratch
+ARG JOBS=6
+ARG ARCH=amd64
+ENV MAKEOPTS="-j${JOBS}" \
+    ARCH="${ARCH}" \
+    PATH="/usr/local/bin:/usr/bin"`,
+			buildPlatforms:        []ocispecs.Platform{{OS: "linux", Architecture: "arm64"}},
+			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "arm64"},
+			buildArgs:             map[string]string{"JOBS": "8", "ARCH": "arm64"},
+			target:                "",
+			expectedResolverCalls: []testResolverCall{},
+			expectedStates:        0,
+			wantErr:               false,
+			errContains:           "",
+		},
+		{
+			name: "FROM scratch with only LABEL directives",
+			dockerfile: `FROM scratch
+LABEL maintainer="test@example.com" \
+      version="1.0.0" \
+      description="Test image"`,
+			buildPlatforms:        []ocispecs.Platform{{OS: "linux", Architecture: "arm64"}},
+			targetPlatform:        ocispecs.Platform{OS: "linux", Architecture: "arm64"},
+			buildArgs:             map[string]string{},
+			target:                "",
+			expectedResolverCalls: []testResolverCall{},
+			expectedStates:        0,
+			wantErr:               false,
+			errContains:           "",
+		},
+		{
+			name: "FROM debian with ENV ARG and LABEL mix",
+			dockerfile: `FROM debian:bullseye
+ARG VERSION=1.0.0
+ARG MAINTAINER=devops@example.com
+ENV APP_VERSION=${VERSION} \
+    PATH=/app/bin:$PATH
+LABEL maintainer="${MAINTAINER}" \
+      version="${VERSION}"`,
+			buildPlatforms: []ocispecs.Platform{{OS: "linux", Architecture: "amd64"}},
+			targetPlatform: ocispecs.Platform{OS: "linux", Architecture: "amd64"},
+			buildArgs:      map[string]string{"VERSION": "2.0.0", "MAINTAINER": "ops@test.com"},
+			target:         "",
+			expectedResolverCalls: []testResolverCall{
+				{ref: "debian:bullseye", platform: &ocispecs.Platform{OS: "linux", Architecture: "amd64"}},
+			},
+			expectedStates: 1,
+			wantErr:        false,
+			errContains:    "",
+		},
 	}
 
 	for _, tt := range tests {
