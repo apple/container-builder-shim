@@ -1,8 +1,5 @@
 name: Container Builder Shim - common jobs
 
-permissions:
-  contents: read
-
 on:
   workflow_call:
     inputs:
