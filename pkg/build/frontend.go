@@ -385,8 +385,9 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		}
 
 		// OCI manifests require a layers array (cannot be null)
+		const metadataOnlyMarker = "/.container-metadata-only"
 		stateWithLayer := llb.Scratch().
-			File(llb.Mkfile("/.container-metadata-only", 0644, []byte("# This image contains only metadata (ENV/ARG/LABEL)\n"))).
+			File(llb.Mkfile(metadataOnlyMarker, 0644, []byte("# This image contains only metadata (ENV/ARG/LABEL)\n"))).
 			Platform(pl)
 
 		layerDef, err := stateWithLayer.Marshal(ctx)
