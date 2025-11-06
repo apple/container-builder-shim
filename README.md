@@ -20,9 +20,30 @@
 
 ## How It Works
 
-![922e463d-d2cb-4e27-bf22-96ed54770305](https://github.com/user-attachments/assets/461930a4-cfab-4b91-ae3b-dee225cdc461)
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {
+  'primaryColor': '#EFF6FF',
+  'primaryBorderColor': '#2563EB',
+  'lineColor': '#2563EB',
+  'clusterBkg': '#EFF6FF',
+  'clusterBorder': '#2563EB'
+}}}%%
 
-1. BuildKit initiates a session via gRPC.
+flowchart LR
+  classDef soft fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,rx:8,ry:8,color:#111827;
+  client["container build ..."]
+  subgraph boundary["Builder Container"]
+    direction LR
+    shim["container‑builder-shim"]
+    buildkit["buildkitd"]
+    shim -- "Buildkit API (gRPC)" --> buildkit
+  end
+
+  client -- BuilderAPI --> shim
+
+```
+
+1. Buildkit initiates a session via gRPC.
 2. container-builder-shim intercepts session requests (file sync, image resolution, etc.).
 3. Requests are translated to containerization's Build API format.
 4. containerization processes the build.
