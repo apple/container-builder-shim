@@ -41,6 +41,7 @@ import (
 var (
 	VERSION         = "dev"
 	debug           = false
+	enableQemu      = false
 	socketPath      = "/run/buildkit/shim.sock"
 	buildkitdPath   = "/usr/bin/buildkitd"
 	basePath        = "/var/lib/container-builder-shim"
@@ -87,6 +88,10 @@ var app = &cobra.Command{
 		ctx := c.Context()
 		cancellableCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
+
+		if !enableQemu {
+			disableQemu()
+		}
 
 		errCh := make(chan error)
 		go func() {
@@ -140,8 +145,26 @@ var app = &cobra.Command{
 	},
 }
 
+func disableQemu() {
+	path := "/usr/bin/buildkit-qemu-x86_64"
+	disabled := path + ".disabled"
+
+	if _, err := os.Stat(path); err == nil {
+		if err := os.Rename(path, disabled); err != nil {
+			log.Warnf("failed to disable %s: %v", path, err)
+		} else {
+			log.Infof("Renamed %s to %s", filepath.Base(path), filepath.Base(disabled))
+		}
+	} else if os.IsNotExist(err) {
+		log.Infof("%s not found; nothing to do", path)
+	} else {
+		log.Warnf("error checking %s: %v", path, err)
+	}
+}
+
 func init() {
 	app.PersistentFlags().BoolVarP(&debug, "debug", "d", debug, "enable debug logging")
+	app.Flags().BoolVar(&enableQemu, "enable-qemu", enableQemu, "use QEMU instead of Rosetta for amd64 builds")
 	app.Flags().IntVarP(&vsockPort, "vsock-port", "p", vsockPort, "vsock port for shim listener")
 	app.Flags().BoolVarP(&vsockMode, "vsock", "v", vsockMode, "toggle vsock listener (turns off UDS listener)")
 	app.Flags().StringVarP(&socketPath, "socket", "s", socketPath, "socket path for shim listener")
