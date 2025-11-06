@@ -164,7 +164,7 @@ func disableQemu() {
 
 func init() {
 	app.PersistentFlags().BoolVarP(&debug, "debug", "d", debug, "enable debug logging")
-	app.Flags().BoolVar(&enableQemu, "enableQemu", enableQemu, "use QEMU instead of Rosetta for amd64 builds")
+	app.Flags().BoolVar(&enableQemu, "enable-qemu", enableQemu, "use QEMU instead of Rosetta for amd64 builds")
 	app.Flags().IntVarP(&vsockPort, "vsock-port", "p", vsockPort, "vsock port for shim listener")
 	app.Flags().BoolVarP(&vsockMode, "vsock", "v", vsockMode, "toggle vsock listener (turns off UDS listener)")
 	app.Flags().StringVarP(&socketPath, "socket", "s", socketPath, "socket path for shim listener")
