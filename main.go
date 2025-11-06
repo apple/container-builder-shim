@@ -151,14 +151,14 @@ func disableQemu() {
 
 	if _, err := os.Stat(path); err == nil {
 		if err := os.Rename(path, disabled); err != nil {
-			log.Warnf("failed to disable %s: %v\n", path, err)
+			log.Warnf("failed to disable %s: %v", path, err)
 		} else {
-			log.Infof("Renamed %s to %s\n", filepath.Base(path), filepath.Base(disabled))
+			log.Infof("Renamed %s to %s", filepath.Base(path), filepath.Base(disabled))
 		}
 	} else if os.IsNotExist(err) {
-		log.Infof("%s not found; nothing to do\n", path)
+		log.Infof("%s not found; nothing to do", path)
 	} else {
-		log.Warnf("error checking %s: %v\n", path, err)
+		log.Warnf("error checking %s: %v", path, err)
 	}
 }
 
