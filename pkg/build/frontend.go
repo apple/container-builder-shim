@@ -180,9 +180,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 
 			clog("[resolver] fetching image...%s", ref.String())
 
-			resolverOpts := sourceresolver.Opt{
-				Platform: &stagePlatform,
-			}
+			resolverOpts := sourceresolver.Opt{}
 			resolverOpts.OCILayoutOpt = &sourceresolver.ResolveOCILayoutOpt{
 				Store: sourceresolver.ResolveImageConfigOptStore{
 					StoreID:   "container",
@@ -190,6 +188,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 				},
 			}
 			resolverOpts.ImageOpt = &sourceresolver.ResolveImageOpt{
+				Platform:    &stagePlatform,
 				ResolveMode: llb.ResolveModePreferLocal.String(),
 			}
 
