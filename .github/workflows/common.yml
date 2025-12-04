@@ -68,7 +68,7 @@ jobs:
           push: true
           tags: ghcr.io/apple/container-builder-shim/builder:${{ inputs.version }}
       - name: Build image to tar
-        if: ${{ inputs.publish }} != true
+        if: ${{ !inputs.publish }}
         uses: docker/build-push-action@v6
         with:
           platforms: linux/arm64
@@ -76,7 +76,7 @@ jobs:
           tags: ghcr.io/apple/container-builder-shim/builder:${{ inputs.version }}
           outputs: type=oci,dest=container-builder-shim.tar
       - name: Save artifacts
-        if: ${{ inputs.publish }} != true
+        if: ${{ !inputs.publish }}
         uses: actions/upload-artifact@v4
         with:
           name: container-builder-shim
