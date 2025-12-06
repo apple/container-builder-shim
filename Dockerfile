@@ -1,7 +1,7 @@
 # meta arg for final base image
-ARG FINAL_IMAGE=docker.io/moby/buildkit:v0.23.2
+ARG FINAL_IMAGE=docker.io/moby/buildkit:v0.26.2
 
-FROM golang:1.23-alpine3.21 AS build-base
+FROM golang:1.24-alpine3.21 AS build-base
 
 ARG GIT_TAG
 ENV VERSION=${GIT_TAG:-dev}

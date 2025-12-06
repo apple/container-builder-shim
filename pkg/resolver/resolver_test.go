@@ -79,7 +79,7 @@ func TestResolverProxy_ResolveImageConfig_Success(t *testing.T) {
 
 	ref := "docker.io/library/alpine:latest"
 	plt := platforms.DefaultSpec()
-	_, gotDigest, gotData, err := proxy.ResolveImageConfig(ctx, ref, sourceresolver.Opt{Platform: &plt})
+	_, gotDigest, gotData, err := proxy.ResolveImageConfig(ctx, ref, sourceresolver.Opt{ImageOpt: &sourceresolver.ResolveImageOpt{Platform: &plt}})
 	if err != nil {
 		t.Fatalf("ResolveImageConfig returned error: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestResolverProxy_ResolveImageConfig_ErrorMetadata(t *testing.T) {
 
 	ref := "docker.io/library/alpine:latest"
 	plt := platforms.DefaultSpec()
-	_, _, _, err := proxy.ResolveImageConfig(ctx, ref, sourceresolver.Opt{Platform: &plt})
+	_, _, _, err := proxy.ResolveImageConfig(ctx, ref, sourceresolver.Opt{ImageOpt: &sourceresolver.ResolveImageOpt{Platform: &plt}})
 	if err == nil {
 		t.Fatalf("expected error from metadata, got nil")
 	}
