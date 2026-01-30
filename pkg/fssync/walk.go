@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/moby/patternmatcher"
 
 	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/apple/container-builder-shim/pkg/fileutils"
@@ -83,6 +84,10 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	if err != nil {
 		return err
 	}
+	excludeMatcher, err := patternmatcher.New(strings.Split(walkMeta.ExcludedPatterns, ","))
+	if err != nil {
+		return err
+	}
 
 	id := uuid.NewString()
 	demux := stream.NewDemuxWithContext(cancellableCtx, id, stream.FilterByBuildID(id), func(any) {})
@@ -119,7 +124,14 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	switch walkMeta.Mode {
 	case ModeTAR:
 		receiver := fileutils.NewTarReceiver(f.fsPath, demux)
-		checksum, err := receiver.Receive(ctx, fn)
+		checksum, err := receiver.Receive(ctx, func(path string, d fs.DirEntry, err error) error {
+			excluded, err := excludeMatcher.MatchesOrParentMatches(path)
+			if excluded {
+				return nil
+			}
+
+			return fn(path, d, err)
+		})
 		if err != nil {
 			return err
 		}
@@ -145,16 +157,18 @@ type RawFileInfo struct {
 }
 
 type WalkMetadata struct {
-	IncludePatterns string
-	FollowPaths     string
-	DirName         string
-	Mode            TransferMode
+	IncludePatterns  string
+	ExcludedPatterns string
+	FollowPaths      string
+	DirName          string
+	Mode             TransferMode
 }
 
 func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
 	md := &WalkMetadata{}
 	if m, ok := metadata.FromIncomingContext(ctx); ok {
 		md.IncludePatterns = strings.Join(m["include-patterns"], ",")
+		md.ExcludedPatterns = strings.Join(m["exclude-patterns"], ",")
 		md.FollowPaths = strings.Join(m["followpaths"], ",")
 		md.DirName = strings.Join(m["dir-name"], ",")
 		modeStr := strings.Join(m["mode"], ",")
