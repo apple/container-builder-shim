@@ -222,6 +222,28 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		if node.Value == "COPY" || node.Value == "ADD" {
 			addedGlobs = append(addedGlobs, node.Next.Value)
 		}
+
+		// Extract source paths from bind mount flags in RUN commands
+		if strings.EqualFold(node.Value, "RUN") {
+			cmd, err := instructions.ParseInstruction(node)
+			if err != nil {
+				continue
+			} else if runCmd, ok := cmd.(*instructions.RunCommand); ok {
+				runCmd.Expand(func(word string) (string, error) {
+					// Single word expander to normalize source path
+					source := strings.TrimPrefix(word, "/")
+					normalized := filepath.Clean(source)
+					return normalized, nil
+				})
+				mounts := instructions.GetMounts(runCmd)
+				for _, mount := range mounts {
+					// Only add source paths from bind mounts (not from other stages)
+					if mount.Type == instructions.MountTypeBind && mount.Source != "" && mount.From == "" {
+						addedGlobs = append(addedGlobs, mount.Source)
+					}
+				}
+			}
+		}
 	}
 
 	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs)
