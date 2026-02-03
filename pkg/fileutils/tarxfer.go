@@ -19,8 +19,6 @@ package fileutils
 import (
 	"archive/tar"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
@@ -44,19 +42,25 @@ func NewTarReceiver(cacheBase string, demux *stream.Demultiplexer) *Receiver {
 
 func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, error) {
 	errCh := make(chan error, 1)
+	hashCh := make(chan string, 1)
 	dataCh := make(chan []byte)
-	go startTar(r.demux, errCh, dataCh)
+	go startTar(r.demux, errCh, hashCh, dataCh)
 
-	header, err := readTarHeader(ctx, errCh, dataCh)
+	hash, err := readTarHash(ctx, errCh, hashCh)
 	if err != nil {
 		return "", err
 	}
 
-	checksum := sha256Hex(header)
+	checksum := string(hash)
 	cacheDir := filepath.Join(r.cacheBase, checksum)
 	tarFile := cacheDir + ".tar"
 
 	cached, err := checkCache(cacheDir, r.cacheBase)
+	if err != nil {
+		return "", err
+	}
+
+	header, err := readTarHeader(ctx, errCh, dataCh)
 	if err != nil {
 		return "", err
 	}
@@ -109,12 +113,7 @@ func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, erro
 	})
 }
 
-func sha256Hex(b []byte) string {
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
-}
-
-func startTar(demux *stream.Demultiplexer, errCh chan<- error, dataCh chan<- []byte) {
+func startTar(demux *stream.Demultiplexer, errCh chan<- error, hashCh chan<- string, dataCh chan<- []byte) {
 	defer close(errCh)
 	defer close(dataCh)
 
@@ -133,6 +132,12 @@ func startTar(demux *stream.Demultiplexer, errCh chan<- error, dataCh chan<- []b
 				errCh <- fmt.Errorf("server error in TAR mode: %s", errMsg)
 				return
 			}
+
+			if hash, ok := bt.Metadata["hash"]; ok {
+				hashCh <- hash
+				continue
+			}
+
 			dataCh <- bt.Data
 			if bt.Complete {
 				errCh <- nil
@@ -153,6 +158,23 @@ func startTar(demux *stream.Demultiplexer, errCh chan<- error, dataCh chan<- []b
 			continue
 		}
 		errCh <- fmt.Errorf("tar stream: unexpected packet type")
+	}
+}
+
+func readTarHash(ctx context.Context, errCh <-chan error, hashCh <-chan string) (string, error) {
+	select {
+	case h, ok := <-hashCh:
+		if !ok {
+			if e := <-errCh; e != nil {
+				return "", e
+			}
+			return "", nil
+		}
+		return h, nil
+	case e := <-errCh:
+		return "", e
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
 }
 
