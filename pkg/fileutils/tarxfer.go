@@ -46,12 +46,11 @@ func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, erro
 	dataCh := make(chan []byte)
 	go startTar(r.demux, errCh, hashCh, dataCh)
 
-	hash, err := readTarHash(ctx, errCh, hashCh)
+	checksum, err := readTarHash(ctx, errCh, hashCh)
 	if err != nil {
 		return "", err
 	}
 
-	checksum := string(hash)
 	cacheDir := filepath.Join(r.cacheBase, checksum)
 	tarFile := cacheDir + ".tar"
 
