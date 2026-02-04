@@ -219,7 +219,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	// to ExcludePatterns(dockerignore) patterns
 	addedGlobs := []string{}
 	for _, node := range dockerfile.AST.Children {
-		if node.Value == "COPY" || node.Value == "ADD" {
+		if strings.EqualFold(node.Value, "COPY") || strings.EqualFold(node.Value, "ADD") {
 			addedGlobs = append(addedGlobs, node.Next.Value)
 		}
 	}
