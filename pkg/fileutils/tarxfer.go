@@ -168,7 +168,7 @@ func readTarHash(ctx context.Context, errCh <-chan error, hashCh <-chan string) 
 			if e := <-errCh; e != nil {
 				return "", e
 			}
-			return "", fmt.Errorf("hash channel closed")
+			return "", fmt.Errorf("hash channel closed, no hash received")
 		}
 		return h, nil
 	case e := <-errCh:
