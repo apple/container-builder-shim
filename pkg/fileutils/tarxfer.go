@@ -19,8 +19,6 @@ package fileutils
 import (
 	"archive/tar"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
@@ -44,19 +42,24 @@ func NewTarReceiver(cacheBase string, demux *stream.Demultiplexer) *Receiver {
 
 func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, error) {
 	errCh := make(chan error, 1)
+	hashCh := make(chan string, 1)
 	dataCh := make(chan []byte)
-	go startTar(r.demux, errCh, dataCh)
+	go startTar(r.demux, errCh, hashCh, dataCh)
 
-	header, err := readTarHeader(ctx, errCh, dataCh)
+	checksum, err := readTarHash(ctx, errCh, hashCh)
 	if err != nil {
 		return "", err
 	}
 
-	checksum := sha256Hex(header)
 	cacheDir := filepath.Join(r.cacheBase, checksum)
 	tarFile := cacheDir + ".tar"
 
 	cached, err := checkCache(cacheDir, r.cacheBase)
+	if err != nil {
+		return "", err
+	}
+
+	header, err := readTarHeader(ctx, errCh, dataCh)
 	if err != nil {
 		return "", err
 	}
@@ -109,13 +112,9 @@ func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, erro
 	})
 }
 
-func sha256Hex(b []byte) string {
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
-}
-
-func startTar(demux *stream.Demultiplexer, errCh chan<- error, dataCh chan<- []byte) {
+func startTar(demux *stream.Demultiplexer, errCh chan<- error, hashCh chan<- string, dataCh chan<- []byte) {
 	defer close(errCh)
+	defer close(hashCh)
 	defer close(dataCh)
 
 	for {
@@ -133,6 +132,12 @@ func startTar(demux *stream.Demultiplexer, errCh chan<- error, dataCh chan<- []b
 				errCh <- fmt.Errorf("server error in TAR mode: %s", errMsg)
 				return
 			}
+
+			if hash, ok := bt.Metadata["hash"]; ok {
+				hashCh <- hash
+				continue
+			}
+
 			dataCh <- bt.Data
 			if bt.Complete {
 				errCh <- nil
@@ -156,6 +161,23 @@ func startTar(demux *stream.Demultiplexer, errCh chan<- error, dataCh chan<- []b
 	}
 }
 
+func readTarHash(ctx context.Context, errCh <-chan error, hashCh <-chan string) (string, error) {
+	select {
+	case h, ok := <-hashCh:
+		if !ok {
+			if e := <-errCh; e != nil {
+				return "", e
+			}
+			return "", fmt.Errorf("hash channel closed, no hash received")
+		}
+		return h, nil
+	case e := <-errCh:
+		return "", e
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
 func readTarHeader(ctx context.Context, errCh <-chan error, dataCh <-chan []byte) ([]byte, error) {
 	select {
 	case d, ok := <-dataCh:
@@ -163,7 +185,7 @@ func readTarHeader(ctx context.Context, errCh <-chan error, dataCh <-chan []byte
 			if e := <-errCh; e != nil {
 				return nil, e
 			}
-			return nil, nil
+			return nil, fmt.Errorf("data channel closed")
 		}
 		return d, nil
 	case e := <-errCh:
