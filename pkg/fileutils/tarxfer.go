@@ -114,6 +114,7 @@ func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, erro
 
 func startTar(demux *stream.Demultiplexer, errCh chan<- error, hashCh chan<- string, dataCh chan<- []byte) {
 	defer close(errCh)
+	defer close(hashCh)
 	defer close(dataCh)
 
 	for {
