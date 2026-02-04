@@ -24,6 +24,12 @@ jobs:
           make fmt
           git diff
           if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
+      - name: Check dependencies 
+        run: |
+          go mod tidy 
+          go mod vendor
+          git add --all --intent-to-add .
+          if ! git diff --quiet ; then echo Please run `go mod tidy && go mod vendor`. Out of date dependency files: ; git diff --name-only ; false ; fi
       - name: Check protobufs 
         run: | 
           make go-protos
