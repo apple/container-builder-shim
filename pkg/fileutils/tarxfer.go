@@ -168,7 +168,7 @@ func readTarHash(ctx context.Context, errCh <-chan error, hashCh <-chan string) 
 			if e := <-errCh; e != nil {
 				return "", e
 			}
-			return "", nil
+			return "", fmt.Errorf("hash channel closed")
 		}
 		return h, nil
 	case e := <-errCh:
@@ -185,7 +185,7 @@ func readTarHeader(ctx context.Context, errCh <-chan error, dataCh <-chan []byte
 			if e := <-errCh; e != nil {
 				return nil, e
 			}
-			return nil, nil
+			return nil, fmt.Errorf("data channel closed")
 		}
 		return d, nil
 	case e := <-errCh:
