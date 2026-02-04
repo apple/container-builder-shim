@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: [self-hosted, macos, sequoia, ARM64]
+    runs-on: [self-hosted, macos, tahoe, ARM64]
     timeout-minutes: 30
     steps: 
       - uses: actions/setup-go@v5
