@@ -125,7 +125,7 @@ func (r *ResolverProxy) ResolveImageConfig(ctx context.Context, ref string, opt 
 			"stage":    "resolver",
 			"method":   "/resolve",
 			"ref":      ref,
-			"platform": platforms.Format(*opt.Platform),
+			"platform": platforms.Format(*opt.ImageOpt.Platform),
 		},
 	}
 	resp, err := r.request(ctx, req)
