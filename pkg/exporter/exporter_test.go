@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the container-builder-shim project authors.
+// Copyright © 2025-2026 Apple Inc. and the container-builder-shim project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package exporter
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/apple/container-builder-shim/pkg/api"
@@ -111,7 +112,7 @@ func TestExporterProxy_Filter_NotMatchingStage(t *testing.T) {
 	proxy := NewExporterProxy(ctx)
 
 	bt := &api.BuildTransfer{Metadata: map[string]string{"stage": "other"}}
-	if err := proxy.Filter(newBuildTransferClientStream(bt)); err != stream.ErrIgnorePacket {
+	if err := proxy.Filter(newBuildTransferClientStream(bt)); !errors.Is(err, stream.ErrIgnorePacket) {
 		t.Fatalf("expected ErrIgnorePacket, got %v", err)
 	}
 }

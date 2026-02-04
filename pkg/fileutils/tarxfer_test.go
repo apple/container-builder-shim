@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the container-builder-shim project authors.
+// Copyright © 2025-2026 Apple Inc. and the container-builder-shim project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"fmt"
+	"encoding/hex"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -72,6 +72,9 @@ func TestReceiver_Receive_Success(t *testing.T) {
 	if len(archive) < 512 {
 		t.Fatalf("tar archive too small: %d", len(archive))
 	}
+
+	hashBytes := sha256.Sum256(archive)
+	hash := hex.EncodeToString(hashBytes[:])
 	header := archive[:512]
 	body := archive[512:]
 
@@ -79,6 +82,7 @@ func TestReceiver_Receive_Success(t *testing.T) {
 	defer cancel()
 	demux := newDemux(ctx)
 
+	_ = demux.Accept(btPacket([]byte{}, false, map[string]string{"hash": hash}))
 	_ = demux.Accept(btPacket(header, false, nil))
 	_ = demux.Accept(btPacket(body, true, nil))
 
@@ -96,9 +100,8 @@ func TestReceiver_Receive_Success(t *testing.T) {
 		t.Fatalf("Receive returned error: %v", err)
 	}
 
-	wantChecksum := func(b []byte) string { h := sha256.Sum256(b); return fmt.Sprintf("%x", h) }(header)
-	if checksum != wantChecksum {
-		t.Fatalf("checksum mismatch: want %s, got %s", wantChecksum, checksum)
+	if checksum != hash {
+		t.Fatalf("checksum mismatch: want %s, got %s", hash, checksum)
 	}
 
 	if len(visited) != 1 || visited[0] != "file1" {

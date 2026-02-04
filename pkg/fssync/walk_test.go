@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the container-builder-shim project authors.
+// Copyright © 2025-2026 Apple Inc. and the container-builder-shim project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,8 +23,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	gofs "io/fs"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -42,7 +40,7 @@ var (
 	headers = map[string][]byte{}
 )
 
-func makeNestedTarHeaderAndBody() (hdr, rest []byte) {
+func makeNestedTarHeaderAndBody() (checksum string, full []byte) {
 	const payload = "hello from tar with nesting\n"
 
 	var buf bytes.Buffer
@@ -68,14 +66,15 @@ func makeNestedTarHeaderAndBody() (hdr, rest []byte) {
 
 	_ = tw.Close()
 
-	full := buf.Bytes()
-	return full[:512], full[512:]
+	full = buf.Bytes()
+	header := sha256.Sum256(full)
+	return hex.EncodeToString(header[:]), full
 }
 
 func (p *FSSyncProxy) Send(s *api.ServerStream) error {
 	id := s.BuildId
 	d := demuxes[id]
-	header, body := makeNestedTarHeaderAndBody()
+	checksum, full := makeNestedTarHeaderAndBody()
 	go func() {
 		_ = d.Accept(&api.ClientStream{
 			BuildId: id,
@@ -83,7 +82,18 @@ func (p *FSSyncProxy) Send(s *api.ServerStream) error {
 				BuildTransfer: &api.BuildTransfer{
 					Id:        id,
 					Direction: api.TransferDirection_INTO,
-					Data:      append(header, body...),
+					Metadata:  map[string]string{"hash": checksum},
+				},
+			},
+		})
+
+		_ = d.Accept(&api.ClientStream{
+			BuildId: id,
+			PacketType: &api.ClientStream_BuildTransfer{
+				BuildTransfer: &api.BuildTransfer{
+					Id:        id,
+					Direction: api.TransferDirection_INTO,
+					Data:      full,
 				},
 			},
 		})
@@ -133,13 +143,7 @@ func TestWalk_UnsupportedMode(t *testing.T) {
 func TestWalk_TarModeSuccess(t *testing.T) {
 	tmp := t.TempDir()
 
-	header, body := makeNestedTarHeaderAndBody()
-	sum := sha256.Sum256(header)
-	checksum := hex.EncodeToString(sum[:])
-	cacheDir := filepath.Join(tmp, checksum)
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		t.Fatalf("mkdir cacheDir: %v", err)
-	}
+	_, full := makeNestedTarHeaderAndBody()
 
 	fs := NewFS(context.Background(), &FSSyncProxy{}, "/", tmp)
 
@@ -151,10 +155,10 @@ func TestWalk_TarModeSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Walk returned err=%v", err)
 	}
-	fsSum := sha256.Sum256(append(header, body...))
+	fsSum := sha256.Sum256(full)
 	fsChecksum := hex.EncodeToString(fsSum[:])
 	if fs.getChecksum() != fsChecksum {
-		t.Errorf("checksum = %q, want %q", fs.getChecksum(), checksum)
+		t.Errorf("checksum = %q, want %q", fs.getChecksum(), fsChecksum)
 	}
 	if len(walked) == 0 {
 		t.Errorf("walk callback not invoked")

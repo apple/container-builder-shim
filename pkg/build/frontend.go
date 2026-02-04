@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the container-builder-shim project authors.
+// Copyright © 2025-2026 Apple Inc. and the container-builder-shim project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -180,9 +180,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 
 			clog("[resolver] fetching image...%s", ref.String())
 
-			resolverOpts := sourceresolver.Opt{
-				Platform: &stagePlatform,
-			}
+			resolverOpts := sourceresolver.Opt{}
 			resolverOpts.OCILayoutOpt = &sourceresolver.ResolveOCILayoutOpt{
 				Store: sourceresolver.ResolveImageConfigOptStore{
 					StoreID:   "container",
@@ -190,6 +188,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 				},
 			}
 			resolverOpts.ImageOpt = &sourceresolver.ResolveImageOpt{
+				Platform:    &stagePlatform,
 				ResolveMode: llb.ResolveModePreferLocal.String(),
 			}
 

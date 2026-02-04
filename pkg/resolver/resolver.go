@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the container-builder-shim project authors.
+// Copyright © 2025-2026 Apple Inc. and the container-builder-shim project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -125,7 +125,7 @@ func (r *ResolverProxy) ResolveImageConfig(ctx context.Context, ref string, opt 
 			"stage":    "resolver",
 			"method":   "/resolve",
 			"ref":      ref,
-			"platform": platforms.Format(*opt.Platform),
+			"platform": platforms.Format(*opt.ImageOpt.Platform),
 		},
 	}
 	resp, err := r.request(ctx, req)
