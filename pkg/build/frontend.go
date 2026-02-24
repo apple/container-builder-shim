@@ -326,6 +326,8 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		return nil, nil, err
 	}
 
+	_, err = cl.ReadEntrypoint(ctx, "dockerfile")
+
 	convertOpt := dockerfile2llb.ConvertOpt{
 		TargetPlatform: &pl,
 		MetaResolver:   bopts.Resolver,
