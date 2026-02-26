@@ -134,6 +134,11 @@ func Build(ctx context.Context, opts *BOpts) error {
 	solveOpt.OCIStores = map[string]content.Store{
 		KeyContentStoreName: opts.ContentStore,
 	}
+
+	if opts.DockerfilePath != "" {
+		solveOpt.FrontendAttrs["filename"] = opts.DockerfilePath
+	}
+
 	if opts.NoCache {
 		solveOpt.FrontendAttrs["no-cache"] = ""
 	}

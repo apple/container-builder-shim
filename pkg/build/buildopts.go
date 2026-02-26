@@ -39,6 +39,7 @@ import (
 const (
 	KeyContentStoreName = "container"
 	KeyDockerfile       = "dockerfile"
+	KeyDockerfilePath   = "dockerfile-path"
 	KeyTag              = "tag"
 	KeyPlatforms        = "platforms"
 	KeyProgress         = "progress"
@@ -62,6 +63,7 @@ var keyBOpts = struct{}{}
 type BOpts struct {
 	BuildID        string
 	Dockerfile     []byte
+	DockerfilePath string
 	Tag            string
 	ContextDir     string
 	BuildPlatforms []ocispecs.Platform
@@ -107,6 +109,8 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	if err != nil {
 		return nil, err
 	}
+
+	dockerfilePath, _ := first(KeyDockerfilePath)
 
 	progress, ok := first(KeyProgress)
 	if !ok {
@@ -259,6 +263,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	bopts := &BOpts{
 		BuildID:        buildID,
 		Dockerfile:     dockerfileBytes,
+		DockerfilePath: dockerfilePath,
 		Tag:            tag,
 		BuildPlatforms: bps,
 		Platforms:      pls,
