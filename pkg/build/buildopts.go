@@ -40,6 +40,7 @@ const (
 	KeyContentStoreName = "container"
 	KeyDockerfile       = "dockerfile"
 	KeyDockerfilePath   = "dockerfile-path"
+	KeyDockerignore     = "dockerignore"
 	KeyTag              = "tag"
 	KeyPlatforms        = "platforms"
 	KeyProgress         = "progress"
@@ -111,6 +112,16 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	}
 
 	dockerfilePath, _ := first(KeyDockerfilePath)
+
+	dockerignoreBase64Bytes, ok := first(KeyDockerignore)
+
+	var dockerignoreBytes = []byte(nil)
+	if ok {
+		dockerignoreBytes, err = base64.StdEncoding.DecodeString(dockerignoreBase64Bytes)
+		if err != nil {
+			dockerignoreBytes = nil
+		}
+	}
 
 	progress, ok := first(KeyProgress)
 	if !ok {
@@ -250,7 +261,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 	}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs)
+	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, dockerfilePath, dockerfileBytes, dockerignoreBytes, addedGlobs)
 	if err != nil {
 		return nil, err
 	}

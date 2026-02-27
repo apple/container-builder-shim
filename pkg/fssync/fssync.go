@@ -45,13 +45,23 @@ type FSSyncProxy struct {
 	contextDir string
 	basePath   string
 
+	dockerfilePath string
+	dockerfile     []byte
+	dockerignore   []byte
+
 	addedGlobs []string
 }
 
-func NewFSSyncProxy(contextDir string, basePath string, addedGlobs []string) (*FSSyncProxy, error) {
+func NewFSSyncProxy(
+	contextDir string, basePath string, dockerfilePath string,
+	dockerfile []byte, dockerignore []byte, addedGlobs []string) (*FSSyncProxy, error) {
+
 	f := new(FSSyncProxy)
 	f.contextDir = contextDir
 	f.basePath = filepath.Join(basePath, f.String())
+	f.dockerfilePath = dockerfilePath
+	f.dockerfile = dockerfile
+	f.dockerignore = dockerignore
 	f.addedGlobs = addedGlobs
 	return f, nil
 }
