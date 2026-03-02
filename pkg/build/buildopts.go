@@ -39,6 +39,8 @@ import (
 const (
 	KeyContentStoreName = "container"
 	KeyDockerfile       = "dockerfile"
+	KeyDockerfilePath   = "dockerfile-path"
+	KeyDockerignore     = "dockerignore"
 	KeyTag              = "tag"
 	KeyPlatforms        = "platforms"
 	KeyProgress         = "progress"
@@ -62,6 +64,7 @@ var keyBOpts = struct{}{}
 type BOpts struct {
 	BuildID        string
 	Dockerfile     []byte
+	DockerfilePath string
 	Tag            string
 	ContextDir     string
 	BuildPlatforms []ocispecs.Platform
@@ -106,6 +109,18 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	dockerfileBytes, err := base64.StdEncoding.DecodeString(dockerfileBase64Bytes)
 	if err != nil {
 		return nil, err
+	}
+
+	dockerfilePath, _ := first(KeyDockerfilePath)
+
+	dockerignoreBase64Bytes, ok := first(KeyDockerignore)
+
+	var dockerignoreBytes = []byte(nil)
+	if ok {
+		dockerignoreBytes, err = base64.StdEncoding.DecodeString(dockerignoreBase64Bytes)
+		if err != nil {
+			dockerignoreBytes = nil
+		}
 	}
 
 	progress, ok := first(KeyProgress)
@@ -246,7 +261,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 	}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs)
+	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, dockerfilePath, dockerfileBytes, dockerignoreBytes, addedGlobs)
 	if err != nil {
 		return nil, err
 	}
@@ -259,6 +274,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	bopts := &BOpts{
 		BuildID:        buildID,
 		Dockerfile:     dockerfileBytes,
+		DockerfilePath: dockerfilePath,
 		Tag:            tag,
 		BuildPlatforms: bps,
 		Platforms:      pls,
