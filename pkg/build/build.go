@@ -30,6 +30,7 @@ import (
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/cmd/buildctl/build"
 	"github.com/moby/buildkit/session"
+	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/sirupsen/logrus"
 	"github.com/tonistiigi/go-csvvalue"
 	"google.golang.org/grpc"
@@ -128,6 +129,7 @@ func Build(ctx context.Context, opts *BOpts) error {
 		CacheExports: cacheExports,
 		Session: []session.Attachable{
 			opts.FSSync,
+			secretsprovider.FromMap(opts.Secrets),
 		},
 		FrontendAttrs: map[string]string{},
 	}

@@ -47,6 +47,7 @@ const (
 	KeyTarget           = "target"
 	KeyLabels           = "labels"
 	KeyBuildArgs        = "build-args"
+	KeySecrets          = "secrets"
 	KeyCacheIn          = "cache-in"
 	KeyCacheOut         = "cache-out"
 	KeyOutput           = "outputs"
@@ -69,6 +70,7 @@ type BOpts struct {
 	NoCache        bool
 	Target         string
 	BuildArgs      map[string]string
+	Secrets        map[string][]byte
 	CacheIn        []string
 	CacheOut       []string
 	Outputs        []string
@@ -179,9 +181,30 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 		return args
 	}
+	mapExtractB64 := func(key string) map[string][]byte {
+		values, ok := contextMap[key]
+		if !ok {
+			return map[string][]byte{}
+		}
+		args := map[string][]byte{}
+		for _, label := range values {
+			parts := strings.SplitN(label, "=", 2)
+			switch len(parts) {
+			case 1:
+				args[parts[0]] = []byte("")
+			case 2:
+				dat, err := base64.StdEncoding.DecodeString(parts[1])
+				if err == nil {
+					args[parts[0]] = dat
+				}
+			}
+		}
+		return args
+	}
 
 	labels := mapExtract(KeyLabels)
 	buildArgs := mapExtract(KeyBuildArgs)
+	secrets := mapExtractB64(KeySecrets)
 	cacheIn := contextMap[KeyCacheIn]
 	cacheOut := contextMap[KeyCacheOut]
 	outputs := contextMap[KeyOutput]
@@ -272,6 +295,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		Target:         target,
 		Labels:         labels,
 		BuildArgs:      buildArgs,
+		Secrets:        secrets,
 		CacheIn:        cacheIn,
 		CacheOut:       cacheOut,
 		Outputs:        outputs,
