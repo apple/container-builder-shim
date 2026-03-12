@@ -26,6 +26,7 @@ import (
 	"github.com/containerd/platforms"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
+	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -160,6 +161,16 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		bps = append(bps, platforms.DefaultSpec())
 	}
 
+	normalizeBuildArg := func(arg string) string {
+		arg = strings.TrimSpace(arg)
+		if len(arg) >= 2 {
+			if (arg[0] == '"' && arg[len(arg)-1] == '"') || (arg[0] == '\'' && arg[len(arg)-1] == '\'') {
+				arg = arg[1 : len(arg)-1]
+			}
+		}
+		return arg
+	}
+
 	pls, err := func() ([]ocispecs.Platform, error) {
 		pls := []ocispecs.Platform{}
 		values, ok := contextMap[KeyPlatforms]
@@ -251,9 +262,16 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	for _, metaArg := range metaArgs {
 		for _, arg := range metaArg.Args {
 			// Only use the dockerfile meta arg if the user did not overwrite it
-			if _, ok := buildArgs[arg.Key]; !ok {
-				buildArgs[arg.Key] = arg.ValueString()
+			if _, ok := buildArgs[arg.Key]; ok {
+				continue
 			}
+			// Expand with prior args and strip shell quotes
+			resolved, err := shell.NewLex('\\').ProcessWordWithMatches(arg.ValueString(), utils.NewMapGetter(buildArgs))
+			if err != nil {
+				return nil, err
+			}
+			// Save the resolved value for later use
+			buildArgs[arg.Key] = normalizeBuildArg(resolved.Result)
 		}
 	}
 
