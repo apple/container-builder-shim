@@ -42,7 +42,7 @@ func NewTarReceiver(cacheBase string, demux *stream.Demultiplexer) *Receiver {
 
 func (r *Receiver) Receive(
 	ctx context.Context,
-	dockerfilePathInContext string,
+	hiddenDirName string,
 	dockerfileBytes []byte,
 	dockerignoreBytes []byte,
 	fn fs.WalkDirFunc) (string, error) {
@@ -91,9 +91,9 @@ func (r *Receiver) Receive(
 		_ = os.Remove(tarFile)
 	}
 
-	if dockerfilePathInContext != "" && dockerignoreBytes != nil {
-		dockerfilePath := filepath.Join(cacheDir, dockerfilePathInContext)
-		dockerignorePath := filepath.Join(cacheDir, dockerfilePathInContext+".dockerignore")
+	if hiddenDirName != "" {
+		dockerfilePath := filepath.Join(cacheDir, filepath.Join(hiddenDirName, "Dockerfile"))
+		dockerignorePath := filepath.Join(cacheDir, filepath.Join(hiddenDirName, "Dockerfile.dockerignore"))
 
 		if err := os.MkdirAll(filepath.Dir(dockerfilePath), 0o755); err != nil {
 			return "", err

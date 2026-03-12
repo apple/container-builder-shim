@@ -20,10 +20,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/containerd/platforms"
+	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/moby/buildkit/util/progress/progresswriter"
@@ -39,7 +41,6 @@ import (
 const (
 	KeyContentStoreName = "container"
 	KeyDockerfile       = "dockerfile"
-	KeyDockerfilePath   = "dockerfile-path"
 	KeyDockerignore     = "dockerignore"
 	KeyTag              = "tag"
 	KeyPlatforms        = "platforms"
@@ -64,7 +65,7 @@ var keyBOpts = struct{}{}
 type BOpts struct {
 	BuildID        string
 	Dockerfile     []byte
-	DockerfilePath string
+	HiddenDirName  string
 	Tag            string
 	ContextDir     string
 	BuildPlatforms []ocispecs.Platform
@@ -111,16 +112,18 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return nil, err
 	}
 
-	dockerfilePath, _ := first(KeyDockerfilePath)
-
 	dockerignoreBase64Bytes, ok := first(KeyDockerignore)
 
 	var dockerignoreBytes = []byte(nil)
+	var hiddenDirName = ""
 	if ok {
 		dockerignoreBytes, err = base64.StdEncoding.DecodeString(dockerignoreBase64Bytes)
 		if err != nil {
-			dockerignoreBytes = nil
+			return nil, err
 		}
+
+		hiddenDirName = ".tmp-" + uuid.NewString()
+		dockerignoreBytes = append(dockerignoreBytes, fmt.Sprintf("\n%s", hiddenDirName)...)
 	}
 
 	progress, ok := first(KeyProgress)
@@ -261,7 +264,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 	}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, dockerfilePath, dockerfileBytes, dockerignoreBytes, addedGlobs)
+	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, hiddenDirName, dockerfileBytes, dockerignoreBytes, addedGlobs)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +277,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	bopts := &BOpts{
 		BuildID:        buildID,
 		Dockerfile:     dockerfileBytes,
-		DockerfilePath: dockerfilePath,
+		HiddenDirName:  hiddenDirName,
 		Tag:            tag,
 		BuildPlatforms: bps,
 		Platforms:      pls,
