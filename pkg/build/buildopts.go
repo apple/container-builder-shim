@@ -20,10 +20,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/containerd/platforms"
+	"github.com/google/uuid"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/moby/buildkit/util/progress/progresswriter"
@@ -37,20 +39,36 @@ import (
 )
 
 const (
+	// Name used to identify the content store.
 	KeyContentStoreName = "container"
-	KeyDockerfile       = "dockerfile"
-	KeyTag              = "tag"
-	KeyPlatforms        = "platforms"
-	KeyProgress         = "progress"
-	KeyNoCache          = "no-cache"
-	KeyContext          = "context"
-	KeyTarget           = "target"
-	KeyLabels           = "labels"
-	KeyBuildArgs        = "build-args"
-	KeyCacheIn          = "cache-in"
-	KeyCacheOut         = "cache-out"
-	KeyOutput           = "outputs"
-	KeyBuildID          = "build-id"
+	// Base64-encoded Dockerfile contents.
+	KeyDockerfile = "dockerfile"
+	// Base64-encoded docker specific ignore file contents.
+	KeyDockerignore = "dockerignore"
+	// Image reference (name:tag) to assign to the built image.
+	KeyTag = "tag"
+	// Target platforms to build the image for.
+	KeyPlatforms = "platforms"
+	// Progress output mode: auto, tty, or plain.
+	KeyProgress = "progress"
+	// When present, disables layer caching.
+	KeyNoCache = "no-cache"
+	// Build context directory path.
+	KeyContext = "context"
+	// Dockerfile stage to build up to.
+	KeyTarget = "target"
+	// Key=value metadata labels to apply to the image.
+	KeyLabels = "labels"
+	// ARG key=value pairs passed to the Dockerfile.
+	KeyBuildArgs = "build-args"
+	// Cache import sources.
+	KeyCacheIn = "cache-in"
+	// Cache export destinations.
+	KeyCacheOut = "cache-out"
+	// Additional export destinations.
+	KeyOutput = "outputs"
+	// Unique build identifier.
+	KeyBuildID = "build-id"
 )
 
 const (
@@ -64,6 +82,7 @@ type BOpts struct {
 	Dockerfile     []byte
 	Tag            string
 	ContextDir     string
+	HiddenDirName  string
 	BuildPlatforms []ocispecs.Platform
 	Platforms      []ocispecs.Platform
 	NoCache        bool
@@ -75,7 +94,6 @@ type BOpts struct {
 	Labels         map[string]string
 	ProgressWriter progresswriter.Writer
 
-	// stages
 	ContentStore *content.ContentStoreProxy
 	Resolver     *resolver.ResolverProxy
 	FSSync       *fssync.FSSyncProxy
@@ -106,6 +124,20 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	dockerfileBytes, err := base64.StdEncoding.DecodeString(dockerfileBase64Bytes)
 	if err != nil {
 		return nil, err
+	}
+
+	var dockerignoreBytes = []byte(nil)
+	var hiddenDirName = ""
+
+	dockerignoreBase64Bytes, ok := first(KeyDockerignore)
+	if ok {
+		dockerignoreBytes, err = base64.StdEncoding.DecodeString(dockerignoreBase64Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		hiddenDirName = ".tmp-" + uuid.NewString()
+		dockerignoreBytes = append(dockerignoreBytes, fmt.Sprintf("\n%s", hiddenDirName)...)
 	}
 
 	progress, ok := first(KeyProgress)
@@ -246,7 +278,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 	}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs)
+	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, hiddenDirName, dockerfileBytes, dockerignoreBytes, addedGlobs)
 	if err != nil {
 		return nil, err
 	}
@@ -263,6 +295,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		BuildPlatforms: bps,
 		Platforms:      pls,
 		ContextDir:     ctxDir,
+		HiddenDirName:  hiddenDirName,
 		ContentStore:   contentProxy,
 		FSSync:         fssyncProxy,
 		NoCache:        noCache,
