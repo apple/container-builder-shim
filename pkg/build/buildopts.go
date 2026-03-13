@@ -214,30 +214,34 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 		return args
 	}
-	mapExtractB64 := func(key string) map[string][]byte {
+	mapExtractB64 := func(key string) (map[string][]byte, error) {
 		values, ok := contextMap[key]
 		if !ok {
-			return map[string][]byte{}
+			return map[string][]byte{}, nil
 		}
 		args := map[string][]byte{}
 		for _, label := range values {
 			parts := strings.SplitN(label, "=", 2)
 			switch len(parts) {
 			case 1:
-				args[parts[0]] = []byte("")
+				args[parts[0]] = []byte{}
 			case 2:
 				dat, err := base64.StdEncoding.DecodeString(parts[1])
-				if err == nil {
-					args[parts[0]] = dat
+				if err != nil {
+					return nil, err
 				}
+				args[parts[0]] = dat
 			}
 		}
-		return args
+		return args, nil
 	}
 
 	labels := mapExtract(KeyLabels)
 	buildArgs := mapExtract(KeyBuildArgs)
-	secrets := mapExtractB64(KeySecrets)
+	secrets, err := mapExtractB64(KeySecrets)
+	if err != nil {
+		return nil, err
+	}
 	cacheIn := contextMap[KeyCacheIn]
 	cacheOut := contextMap[KeyCacheOut]
 	outputs := contextMap[KeyOutput]
