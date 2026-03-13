@@ -40,13 +40,7 @@ func NewTarReceiver(cacheBase string, demux *stream.Demultiplexer) *Receiver {
 	return &Receiver{demux: demux, cacheBase: cacheBase}
 }
 
-func (r *Receiver) Receive(
-	ctx context.Context,
-	hiddenDirName string,
-	dockerfileBytes []byte,
-	dockerignoreBytes []byte,
-	fn fs.WalkDirFunc) (string, error) {
-
+func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, error) {
 	errCh := make(chan error, 1)
 	hashCh := make(chan string, 1)
 	dataCh := make(chan []byte)
@@ -89,36 +83,6 @@ func (r *Receiver) Receive(
 			return "", err
 		}
 		_ = os.Remove(tarFile)
-	}
-
-	if hiddenDirName != "" {
-		dockerfilePath := filepath.Join(cacheDir, filepath.Join(hiddenDirName, "Dockerfile"))
-		dockerignorePath := filepath.Join(cacheDir, filepath.Join(hiddenDirName, "Dockerfile.dockerignore"))
-
-		if err := os.MkdirAll(filepath.Dir(dockerfilePath), 0o755); err != nil {
-			return "", err
-		}
-
-		dockerfile, err := os.OpenFile(dockerfilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-		if err != nil {
-			return "", err
-		}
-		if _, err := dockerfile.Write(dockerfileBytes); err != nil {
-			_ = dockerfile.Close()
-			return "", err
-		}
-		defer dockerfile.Close()
-
-		dockerignore, err := os.OpenFile(dockerignorePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-		if err != nil {
-			return "", err
-		}
-		defer dockerignore.Close()
-
-		if _, err := dockerignore.Write(dockerignoreBytes); err != nil {
-			_ = dockerignore.Close()
-			return "", err
-		}
 	}
 
 	return checksum, filepath.Walk(cacheDir, func(p string, info os.FileInfo, _ error) error {

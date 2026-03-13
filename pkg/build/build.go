@@ -30,7 +30,6 @@ import (
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/cmd/buildctl/build"
 	"github.com/moby/buildkit/session"
-	"github.com/sirupsen/logrus"
 	"github.com/tonistiigi/go-csvvalue"
 	"google.golang.org/grpc"
 )
@@ -51,7 +50,6 @@ func Build(ctx context.Context, opts *BOpts) error {
 
 	buildkit, err := client.New(ctx, "", clientOpts...)
 	if err != nil {
-		logrus.Debugf("failed to connect to buildkit")
 		return err
 	}
 	defer buildkit.Close()
@@ -135,8 +133,8 @@ func Build(ctx context.Context, opts *BOpts) error {
 		KeyContentStoreName: opts.ContentStore,
 	}
 
-	if opts.HiddenDirName != "" {
-		solveOpt.FrontendAttrs["filename"] = filepath.Join(opts.HiddenDirName, "Dockerfile")
+	if opts.HiddenDockerDir != "" {
+		solveOpt.FrontendAttrs["filename"] = filepath.Join(opts.HiddenDockerDir, "Dockerfile")
 	}
 
 	if opts.NoCache {
