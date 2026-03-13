@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/platforms"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/opencontainers/go-digest"
 
