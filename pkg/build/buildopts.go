@@ -41,8 +41,8 @@ const (
 	KeyContentStoreName = "container"
 	// Base64-encoded Dockerfile contents.
 	KeyDockerfile = "dockerfile"
-	// Hidden directory for the dockerfile to be placed.
-	// Used when docker specific ignore file is found.
+	// Hidden directory for the dockerfile and dockerignore to be placed.
+	// This is provided when docker specific ignore file is found, which might live outside the build context.
 	KeyHiddenDockerDir = "hidden-docker-dir"
 	// Image reference (name:tag) to assign to the built image.
 	KeyTag = "tag"
