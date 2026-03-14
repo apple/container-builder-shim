@@ -173,6 +173,11 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		bps = append(bps, platforms.DefaultSpec())
 	}
 
+	normalizeBuildArg := func(arg string) string {
+		arg = strings.TrimSpace(arg)
+		return strings.Trim(arg, `"'`)
+	}
+
 	pls, err := func() ([]ocispecs.Platform, error) {
 		pls := []ocispecs.Platform{}
 		values, ok := contextMap[KeyPlatforms]
@@ -209,7 +214,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 			case 1:
 				args[parts[0]] = ""
 			case 2:
-				args[parts[0]] = parts[1]
+				args[parts[0]] = normalizeBuildArg(parts[1])
 			}
 		}
 		return args
@@ -265,7 +270,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		for _, arg := range metaArg.Args {
 			// Only use the dockerfile meta arg if the user did not overwrite it
 			if _, ok := buildArgs[arg.Key]; !ok {
-				buildArgs[arg.Key] = arg.ValueString()
+				buildArgs[arg.Key] = normalizeBuildArg(arg.ValueString())
 			}
 		}
 	}
