@@ -95,7 +95,7 @@ func TestReceiver_Receive_Success(t *testing.T) {
 		return nil
 	}
 
-	checksum, err := r.Receive(ctx, "", nil, nil, walkFn)
+	checksum, err := r.Receive(ctx, walkFn)
 	if err != nil {
 		t.Fatalf("Receive returned error: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestReceiver_Receive_ServerError(t *testing.T) {
 	tmpDir := t.TempDir()
 	r := NewTarReceiver(tmpDir, demux)
 
-	_, err := r.Receive(ctx, "", nil, nil, func(string, fs.DirEntry, error) error { return nil })
+	_, err := r.Receive(ctx, func(string, fs.DirEntry, error) error { return nil })
 	if err == nil {
 		t.Fatalf("expected server error, got nil")
 	}

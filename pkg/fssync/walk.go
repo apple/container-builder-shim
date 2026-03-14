@@ -124,15 +124,14 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	switch walkMeta.Mode {
 	case ModeTAR:
 		receiver := fileutils.NewTarReceiver(f.fsPath, demux)
-		checksum, err := receiver.Receive(ctx, f.proxy.hiddenDirName, f.proxy.dockerfile, f.proxy.dockerignore,
-			func(path string, d fs.DirEntry, err error) error {
-				excluded, err := excludeMatcher.MatchesOrParentMatches(path)
-				if excluded {
-					return nil
-				}
+		checksum, err := receiver.Receive(ctx, func(path string, d fs.DirEntry, err error) error {
+			excluded, err := excludeMatcher.MatchesOrParentMatches(path)
+			if excluded {
+				return nil
+			}
 
-				return fn(path, d, err)
-			})
+			return fn(path, d, err)
+		})
 		if err != nil {
 			return err
 		}
