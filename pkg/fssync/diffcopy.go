@@ -28,7 +28,6 @@ import (
 
 	"github.com/moby/buildkit/session/filesync"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/tonistiigi/fsutil/types"
 	"golang.org/x/sync/errgroup"
 )
@@ -144,8 +143,6 @@ func (s *sender) queue(id uint32) error {
 }
 
 func (s *sender) sendFile(h *sendHandle) error {
-	logrus.Debugf("sendFile: %v", h.path)
-
 	var r io.Reader
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
