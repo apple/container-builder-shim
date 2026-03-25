@@ -278,6 +278,9 @@ func unpackTar(ctx context.Context, tarFile, dest string) error {
 		if err != nil {
 			return err
 		}
+		if hdr.Name == DockerfileStaging {
+			return fmt.Errorf("cannot use reserved path: %s", hdr.Name)
+		}
 		target := filepath.Join(dest, hdr.Name)
 		if !strings.HasPrefix(target, filepath.Clean(dest)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid tar path: %s", hdr.Name)
