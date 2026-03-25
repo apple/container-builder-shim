@@ -17,6 +17,7 @@
 package fssync
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"io/fs"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/moby/buildkit/session/filesync"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/tonistiigi/fsutil/types"
 	"golang.org/x/sync/errgroup"
 )
@@ -141,12 +143,29 @@ func (s *sender) queue(id uint32) error {
 }
 
 func (s *sender) sendFile(h *sendHandle) error {
-	f, err := s.fs.Open(h.path)
-	if err == nil {
-		defer f.Close()
-		buf := bufPool.Get().(*[]byte)
-		defer bufPool.Put(buf)
-		if _, err := io.CopyBuffer(&fileSender{sender: s, id: h.id}, struct{ io.Reader }{f}, *buf); err != nil {
+	logrus.Debugf("sendFile: %v", h.path)
+
+	var r io.Reader
+	buf := bufPool.Get().(*[]byte)
+	defer bufPool.Put(buf)
+
+	switch h.path {
+	case "com.apple.container/Dockerfile":
+		r = bytes.NewReader(s.fs.proxy.dockerfile)
+	case "com.apple.container/Dockerfile.ignore":
+		r = bytes.NewReader(s.fs.proxy.dockerignore)
+	}
+
+	if r == nil {
+		f, err := s.fs.Open(h.path)
+		if err == nil {
+			defer f.Close()
+			if _, err := io.CopyBuffer(&fileSender{sender: s, id: h.id}, struct{ io.Reader }{f}, *buf); err != nil {
+				return err
+			}
+		}
+	} else {
+		if _, err := io.CopyBuffer(&fileSender{sender: s, id: h.id}, r, *buf); err != nil {
 			return err
 		}
 	}
@@ -183,6 +202,25 @@ func (s *sender) walk(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	proxy := s.fs.proxy
+	syntheticStats := []*types.Stat{
+		{Path: "com.apple.container", Mode: uint32(os.ModeDir | 0755)},
+		{Path: "com.apple.container/Dockerfile", Mode: uint32(0644), Size: int64(len(proxy.dockerfile))},
+		{Path: "com.apple.container/Dockerfile.ignore", Mode: uint32(0644), Size: int64(len(proxy.dockerignore))},
+	}
+	for _, stat := range syntheticStats {
+		if fileCanRequestData(os.FileMode(stat.Mode)) {
+			s.mu.Lock()
+			s.files[i] = stat.Path
+			s.mu.Unlock()
+		}
+		i++
+		if err := s.conn.SendMsg(&types.Packet{Type: types.PACKET_STAT, Stat: stat}); err != nil {
+			return errors.Wrapf(err, "failed to send stat %s", stat.Path)
+		}
+	}
+
 	return errors.Wrapf(s.conn.SendMsg(&types.Packet{Type: types.PACKET_STAT}), "failed to send last stat")
 }
 
