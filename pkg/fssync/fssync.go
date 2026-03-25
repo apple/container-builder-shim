@@ -25,12 +25,13 @@ import (
 	"github.com/moby/buildkit/session/filesync"
 
 	"github.com/apple/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/fileutils"
 	"github.com/apple/container-builder-shim/pkg/stream"
 
 	"google.golang.org/grpc"
 )
 
-const DockerfileStaging = ".com.apple.container"
+const DockerfileStaging = fileutils.DockerfileStaging
 
 var (
 	_ stream.Stage            = &FSSyncProxy{}

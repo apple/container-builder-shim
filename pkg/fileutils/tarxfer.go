@@ -26,9 +26,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/apple/container-builder-shim/pkg/fssync"
 	"github.com/apple/container-builder-shim/pkg/stream"
 )
+
+const DockerfileStaging = ".com.apple.container"
 
 // Receiver streams a remote tar archive, caches it under cacheBase and calls fn
 // for every entry that is a regular file, directory or symlink.
@@ -319,7 +320,7 @@ func unpackTar(ctx context.Context, tarFile, dest string) error {
 }
 
 func stageDockerfiles(ctx context.Context, cacheDir string, dockerfile, dockerignore []byte) error {
-	staging := filepath.Join(cacheDir, fssync.DockerfileStaging)
+	staging := filepath.Join(cacheDir, DockerfileStaging)
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return err
 	}
