@@ -22,6 +22,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 
@@ -150,9 +151,9 @@ func (s *sender) sendFile(h *sendHandle) error {
 	defer bufPool.Put(buf)
 
 	switch h.path {
-	case "com.apple.container/Dockerfile":
+	case filepath.Join(DockerfileStaging, "Dockerfile"):
 		r = bytes.NewReader(s.fs.proxy.dockerfile)
-	case "com.apple.container/Dockerfile.ignore":
+	case filepath.Join(DockerfileStaging, "Dockerfile.dockerignore"):
 		r = bytes.NewReader(s.fs.proxy.dockerignore)
 	}
 
@@ -201,24 +202,6 @@ func (s *sender) walk(ctx context.Context) error {
 	})
 	if err != nil {
 		return err
-	}
-
-	proxy := s.fs.proxy
-	syntheticStats := []*types.Stat{
-		{Path: "com.apple.container", Mode: uint32(os.ModeDir | 0755)},
-		{Path: "com.apple.container/Dockerfile", Mode: uint32(0644), Size: int64(len(proxy.dockerfile))},
-		{Path: "com.apple.container/Dockerfile.ignore", Mode: uint32(0644), Size: int64(len(proxy.dockerignore))},
-	}
-	for _, stat := range syntheticStats {
-		if fileCanRequestData(os.FileMode(stat.Mode)) {
-			s.mu.Lock()
-			s.files[i] = stat.Path
-			s.mu.Unlock()
-		}
-		i++
-		if err := s.conn.SendMsg(&types.Packet{Type: types.PACKET_STAT, Stat: stat}); err != nil {
-			return errors.Wrapf(err, "failed to send stat %s", stat.Path)
-		}
 	}
 
 	return errors.Wrapf(s.conn.SendMsg(&types.Packet{Type: types.PACKET_STAT}), "failed to send last stat")

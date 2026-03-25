@@ -30,6 +30,8 @@ import (
 	"google.golang.org/grpc"
 )
 
+const DockerfileStaging = ".com.apple.container"
+
 var (
 	_ stream.Stage            = &FSSyncProxy{}
 	_ session.Attachable      = &FSSyncProxy{}

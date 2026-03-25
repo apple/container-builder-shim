@@ -28,7 +28,6 @@ import (
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/sirupsen/logrus"
 
 	"github.com/apple/container-builder-shim/pkg/build/utils"
 	"github.com/apple/container-builder-shim/pkg/content"
@@ -73,7 +72,11 @@ const (
 )
 
 const (
+	// Used to share built artifacts outside VM
 	GlobalExportPath = "/var/lib/container-builder-shim/exports"
+	// If KeyDockerignore argument is provided, Dockerfile and ignore file are
+	// staged at DockerfileStaging directory, and buildkit uses them.
+	DockerfileStaging = fssync.DockerfileStaging
 )
 
 var keyBOpts = struct{}{}
@@ -136,6 +139,8 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		if err != nil {
 			return nil, err
 		}
+
+		dockerignoreBytes = append(dockerignoreBytes, []byte("\n"+DockerfileStaging)...)
 	}
 
 	progress, ok := first(KeyProgress)
@@ -334,8 +339,6 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		Outputs:        outputs,
 		basePath:       filepath.Join(basePath, buildID),
 	}
-
-	logrus.Debugf("bopts.Dockerignore: %v", string(dockerignoreBytes))
 
 	return bopts, nil
 }

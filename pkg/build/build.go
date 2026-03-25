@@ -138,9 +138,8 @@ func Build(ctx context.Context, opts *BOpts) error {
 	}
 
 	if len(opts.Dockerignore) > 0 {
-		solveOpt.FrontendAttrs["filename"] = "com.apple.container/Dockerfile"
+		solveOpt.FrontendAttrs["filename"] = filepath.Join(DockerfileStaging, "Dockerfile")
 	}
-	logrus.Debugf("solveOpt.FrontendAttrs[filename]=%v", solveOpt.FrontendAttrs["filename"])
 
 	if opts.NoCache {
 		solveOpt.FrontendAttrs["no-cache"] = ""
