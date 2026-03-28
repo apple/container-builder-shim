@@ -161,16 +161,6 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		bps = append(bps, platforms.DefaultSpec())
 	}
 
-	normalizeBuildArg := func(arg string) string {
-		arg = strings.TrimSpace(arg)
-		if len(arg) >= 2 {
-			if (arg[0] == '"' && arg[len(arg)-1] == '"') || (arg[0] == '\'' && arg[len(arg)-1] == '\'') {
-				arg = arg[1 : len(arg)-1]
-			}
-		}
-		return arg
-	}
-
 	pls, err := func() ([]ocispecs.Platform, error) {
 		pls := []ocispecs.Platform{}
 		values, ok := contextMap[KeyPlatforms]
@@ -271,7 +261,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 				return nil, err
 			}
 			// Save the resolved value for later use
-			buildArgs[arg.Key] = normalizeBuildArg(resolved.Result)
+			buildArgs[arg.Key] = resolved.Result
 		}
 	}
 
