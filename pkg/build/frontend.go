@@ -252,7 +252,6 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 	}
 
 	if err := preseedCopyFromSources(stages, platform, resolveSource); err != nil {
-		errCh <- err
 		return nil, err
 	}
 	return states, nil
@@ -434,7 +433,7 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 // Pre-seed external COPY --from=<image> refs as named contexts, so BuildKit
 // does not fall back to remote resolver for normalized docker.io refs.
 func preseedCopyFromSources(stages []instructions.Stage, platform ocispecs.Platform, resolveSource func(string, ocispecs.Platform) error) error {
-	for i, stage := range stages {
+	for _, stage := range stages {
 		for _, cmd := range stage.Commands {
 			c, ok := cmd.(*instructions.CopyCommand)
 			if !ok || c.From == "" {
@@ -445,8 +444,8 @@ func preseedCopyFromSources(stages []instructions.Stage, platform ocispecs.Platf
 			if err == nil {
 				continue
 			}
-			namedIndex, hasNamedStage := instructions.HasStage(stages, c.From)
-			if hasNamedStage && namedIndex < i {
+			_, hasNamedStage := instructions.HasStage(stages, c.From)
+			if hasNamedStage {
 				continue
 			}
 			// BuildKit does not support arg expansion in COPY --from, so use literal c.From.
