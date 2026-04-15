@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -129,9 +130,81 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 	states := map[string]stateMeta{}
 	stateLock := sync.Mutex{}
 
+	resolveSource := func(resolvedBaseStageName string, sourcePlatform ocispecs.Platform) error {
+		if strings.EqualFold(resolvedBaseStageName, "scratch") || strings.EqualFold(resolvedBaseStageName, "context") {
+			return nil
+		}
+
+		ref, err := dref.ParseAnyReference(resolvedBaseStageName)
+		if err != nil {
+			if err == reference.ErrObjectRequired {
+				return nil
+			}
+			return fmt.Errorf("invalid ref: %s", resolvedBaseStageName)
+		}
+
+		clog("[resolver] fetching image...%s", ref.String())
+
+		resolverOpts := sourceresolver.Opt{}
+		resolverOpts.ImageOpt = &sourceresolver.ResolveImageOpt{
+			Platform:    &sourcePlatform,
+			ResolveMode: llb.ResolveModePreferLocal.String(),
+		}
+		resolverOpts.OCILayoutOpt = &sourceresolver.ResolveOCILayoutOpt{
+			Store: sourceresolver.ResolveImageConfigOptStore{
+				StoreID:   "container",
+				SessionID: "",
+			},
+		}
+
+		// `resolvedBaseStageName.Result` is the image name as it was specified in the Dockerfile
+		// with the build args applied
+		// NOTE: DO NOT USE `ref.String()` in the call to ResolveImageConfig
+		// `ref`` is the qualified reference, with a default domain
+		// In case of local images, where there is no registry, resolution will fail
+		// due to the addition of the default domain.
+		_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, resolvedBaseStageName, resolverOpts)
+		if err != nil {
+			if err == reference.ErrObjectRequired {
+				return nil
+			}
+			return err
+		}
+
+		fqdn := ref.String()
+		if _, ok := ref.(dref.Digested); !ok {
+			fqdn += "@" + digest.String()
+		}
+		st := llb.OCILayout(fqdn, llb.OCIStore("", "container"), llb.Platform(sourcePlatform))
+
+		named, err := dref.ParseNormalizedNamed(ref.String())
+		if err != nil {
+			return fmt.Errorf("invalid context name %s %v", ref.String(), err)
+		}
+		// pname constructs a platform-qualified image reference in the format buildkit requires for digest resolution
+		name := strings.TrimSuffix(dref.FamiliarString(named), ":latest")
+		pname := name + "::" + platforms.FormatAll(platforms.Normalize(sourcePlatform))
+
+		imgMetaMap := map[string][]byte{
+			exptypes.ExporterImageConfigKey: img,
+		}
+		imgMeta, err := json.Marshal(imgMetaMap)
+		if err != nil {
+			return err
+		}
+
+		stateLock.Lock()
+		states[pname] = stateMeta{
+			state:   st.Platform(sourcePlatform),
+			imgMeta: imgMeta,
+		}
+		stateLock.Unlock()
+		return nil
+	}
+
 	for i, stage := range stages {
 		wg.Add(1)
-		go func(stage instructions.Stage) {
+		go func(i int, stage instructions.Stage) {
 			defer wg.Done()
 
 			shlex := shell.NewLex(dockerfile.EscapeToken)
@@ -139,10 +212,6 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			resolvedBaseStageName, err := shlex.ProcessWordWithMatches(stage.BaseName, resolvedGlobalArgs)
 			if err != nil {
 				errCh <- fmt.Errorf("invalid arg for stage[%s]: %v", stage.BaseName, err)
-				return
-			}
-
-			if strings.EqualFold(resolvedBaseStageName.Result, "scratch") || strings.EqualFold(resolvedBaseStageName.Result, "context") {
 				return
 			}
 
@@ -168,85 +237,22 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 				return
 			}
 
-			ref, err := dref.ParseAnyReference(resolvedBaseStageName.Result)
-			if err != nil {
-				if err == reference.ErrObjectRequired {
-					return
-				}
-
-				errCh <- fmt.Errorf("invalid ref: %s", stage.BaseName)
-				return
-			}
-
-			clog("[resolver] fetching image...%s", ref.String())
-
-			resolverOpts := sourceresolver.Opt{}
-			resolverOpts.OCILayoutOpt = &sourceresolver.ResolveOCILayoutOpt{
-				Store: sourceresolver.ResolveImageConfigOptStore{
-					StoreID:   "container",
-					SessionID: "",
-				},
-			}
-			resolverOpts.ImageOpt = &sourceresolver.ResolveImageOpt{
-				Platform:    &stagePlatform,
-				ResolveMode: llb.ResolveModePreferLocal.String(),
-			}
-
-			// `resolvedBaseStageName.Result` is the image name as it was specified in the Dockerfile
-			// with the build args applied
-			// NOTE: DO NOT USE `ref.String()` in the call to ResolveImageConfig
-			// `ref`` is the qualified reference, with a default domain
-			// In case of local images, where there is no registry, resolution will fail
-			// due to the addition of the default domain.
-			_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, resolvedBaseStageName.Result, resolverOpts)
-			if err != nil {
-				if err == reference.ErrObjectRequired {
-					return
-				}
+			if err := resolveSource(resolvedBaseStageName.Result, stagePlatform); err != nil {
 				logrus.Errorf("error resolving image: %v", err)
 				errCh <- err
 				return
 			}
-			fqdn := ref.String()
-			if _, ok := ref.(dref.Digested); !ok {
-				fqdn = fqdn + "@" + digest.String()
-			}
-			logrus.WithField("ref", fqdn).Infof("creating llb")
-			st := llb.OCILayout(fqdn, llb.OCIStore("", "container"), llb.Platform(stagePlatform))
-
-			named, err := dref.ParseNormalizedNamed(ref.String())
-			if err != nil {
-				errCh <- fmt.Errorf("invalid context name %s %v", ref.String(), err)
-				return
-			}
-			name := strings.TrimSuffix(dref.FamiliarString(named), ":latest")
-
-			// pname constructs a platform-qualified image reference in the format buildkit requires for digest resolution
-			pname := name + "::" + platforms.FormatAll(platforms.Normalize(stagePlatform))
-			imgMetaMap := map[string][]byte{
-				exptypes.ExporterImageConfigKey: img,
-			}
-
-			imgMeta, err := json.Marshal(imgMetaMap)
-			if err != nil {
-				errCh <- err
-				return
-			}
-
-			stateLock.Lock()
-			defer stateLock.Unlock()
-
-			states[pname] = stateMeta{
-				state:   st.Platform(stagePlatform),
-				imgMeta: imgMeta,
-			}
-		}(stage)
+		}(i, stage)
 	}
 	go func() { wg.Wait(); doneCh <- struct{}{} }()
 	select {
 	case err := <-errCh:
 		return nil, err
 	case <-doneCh:
+	}
+
+	if err := preseedCopyFromSources(stages, platform, resolveSource); err != nil {
+		return nil, err
 	}
 	return states, nil
 }
@@ -422,6 +428,35 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		return nil, nil, err
 	}
 	return ref, cfgJSON, nil
+}
+
+// Pre-seed external COPY --from=<image> refs as named contexts, so BuildKit
+// does not fall back to remote resolver for normalized docker.io refs.
+func preseedCopyFromSources(stages []instructions.Stage, platform ocispecs.Platform, resolveSource func(string, ocispecs.Platform) error) error {
+	for _, stage := range stages {
+		for _, cmd := range stage.Commands {
+			c, ok := cmd.(*instructions.CopyCommand)
+			if !ok || c.From == "" {
+				continue
+			}
+			// Skip numeric stage indexes.
+			_, err := strconv.Atoi(c.From)
+			if err == nil {
+				continue
+			}
+			_, hasNamedStage := instructions.HasStage(stages, c.From)
+			if hasNamedStage {
+				continue
+			}
+			// BuildKit does not support arg expansion in COPY --from, so use literal c.From.
+			err = resolveSource(c.From, platform)
+			if err != nil {
+				logrus.Errorf("error resolving COPY --from image: %v", err)
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func globalArgs(buildPlatform, targetPlatform ocispecs.Platform, buildArgs map[string]string, target string) utils.MapGetter {
