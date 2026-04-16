@@ -322,7 +322,7 @@ func unpackTar(ctx context.Context, tarFile, dest string) error {
 	return nil
 }
 
-func stageDockerfiles(ctx context.Context, cacheDir string, dockerfile, dockerignore []byte) error {
+func stageDockerfiles(ctx context.Context, cacheDir string, dockerfile []byte, dockerignore []byte) error {
 	staging := filepath.Join(cacheDir, DockerfileStaging)
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return err
