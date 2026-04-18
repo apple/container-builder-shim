@@ -17,10 +17,12 @@
 package fssync
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 
@@ -141,12 +143,27 @@ func (s *sender) queue(id uint32) error {
 }
 
 func (s *sender) sendFile(h *sendHandle) error {
-	f, err := s.fs.Open(h.path)
-	if err == nil {
-		defer f.Close()
-		buf := bufPool.Get().(*[]byte)
-		defer bufPool.Put(buf)
-		if _, err := io.CopyBuffer(&fileSender{sender: s, id: h.id}, struct{ io.Reader }{f}, *buf); err != nil {
+	var r io.Reader
+	buf := bufPool.Get().(*[]byte)
+	defer bufPool.Put(buf)
+
+	switch h.path {
+	case filepath.Join(DockerfileStaging, "Dockerfile"):
+		r = bytes.NewReader(s.fs.proxy.dockerfile)
+	case filepath.Join(DockerfileStaging, "Dockerfile.dockerignore"):
+		r = bytes.NewReader(s.fs.proxy.dockerignore)
+	}
+
+	if r == nil {
+		f, err := s.fs.Open(h.path)
+		if err == nil {
+			defer f.Close()
+			if _, err := io.CopyBuffer(&fileSender{sender: s, id: h.id}, struct{ io.Reader }{f}, *buf); err != nil {
+				return err
+			}
+		}
+	} else {
+		if _, err := io.CopyBuffer(&fileSender{sender: s, id: h.id}, r, *buf); err != nil {
 			return err
 		}
 	}
@@ -183,6 +200,7 @@ func (s *sender) walk(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	return errors.Wrapf(s.conn.SendMsg(&types.Packet{Type: types.PACKET_STAT}), "failed to send last stat")
 }
 

@@ -137,8 +137,8 @@ func Build(ctx context.Context, opts *BOpts) error {
 		KeyContentStoreName: opts.ContentStore,
 	}
 
-	if opts.HiddenDockerDir != "" {
-		solveOpt.FrontendAttrs["filename"] = filepath.Join(opts.HiddenDockerDir, "Dockerfile")
+	if len(opts.Dockerignore) > 0 {
+		solveOpt.FrontendAttrs["filename"] = filepath.Join(DockerfileStaging, "Dockerfile")
 	}
 
 	if opts.NoCache {

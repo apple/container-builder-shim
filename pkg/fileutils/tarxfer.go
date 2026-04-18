@@ -29,6 +29,8 @@ import (
 	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
+const DockerfileStaging = ".com.apple.container"
+
 // Receiver streams a remote tar archive, caches it under cacheBase and calls fn
 // for every entry that is a regular file, directory or symlink.
 type Receiver struct {
@@ -40,7 +42,7 @@ func NewTarReceiver(cacheBase string, demux *stream.Demultiplexer) *Receiver {
 	return &Receiver{demux: demux, cacheBase: cacheBase}
 }
 
-func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, error) {
+func (r *Receiver) Receive(ctx context.Context, dockerfile []byte, dockerignore []byte, fn fs.WalkDirFunc) (string, error) {
 	errCh := make(chan error, 1)
 	hashCh := make(chan string, 1)
 	dataCh := make(chan []byte)
@@ -83,6 +85,12 @@ func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, erro
 			return "", err
 		}
 		_ = os.Remove(tarFile)
+	}
+
+	if len(dockerignore) > 0 {
+		if err := stageDockerfiles(ctx, cacheDir, dockerfile, dockerignore); err != nil {
+			return "", err
+		}
 	}
 
 	return checksum, filepath.Walk(cacheDir, func(p string, info os.FileInfo, _ error) error {
@@ -270,6 +278,9 @@ func unpackTar(ctx context.Context, tarFile, dest string) error {
 		if err != nil {
 			return err
 		}
+		if hdr.Name == DockerfileStaging {
+			return fmt.Errorf("cannot use reserved path: %s", hdr.Name)
+		}
 		target := filepath.Join(dest, hdr.Name)
 		if !strings.HasPrefix(target, filepath.Clean(dest)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid tar path: %s", hdr.Name)
@@ -308,5 +319,30 @@ func unpackTar(ctx context.Context, tarFile, dest string) error {
 			}
 		}
 	}
+	return nil
+}
+
+func stageDockerfiles(ctx context.Context, cacheDir string, dockerfile []byte, dockerignore []byte) error {
+	staging := filepath.Join(cacheDir, DockerfileStaging)
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		return err
+	}
+
+	dockerfilePath := filepath.Join(staging, "Dockerfile")
+	f, err := os.OpenFile(dockerfilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	f.Write(dockerfile)
+	f.Close()
+
+	dockerignorePath := filepath.Join(staging, "Dockerfile.dockerignore")
+	f, err = os.OpenFile(dockerignorePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	f.Write(dockerignore)
+	f.Close()
+
 	return nil
 }

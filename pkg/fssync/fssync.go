@@ -25,10 +25,13 @@ import (
 	"github.com/moby/buildkit/session/filesync"
 
 	"github.com/apple/container-builder-shim/pkg/api"
+	"github.com/apple/container-builder-shim/pkg/fileutils"
 	"github.com/apple/container-builder-shim/pkg/stream"
 
 	"google.golang.org/grpc"
 )
+
+const DockerfileStaging = fileutils.DockerfileStaging
 
 var (
 	_ stream.Stage            = &FSSyncProxy{}
@@ -46,14 +49,21 @@ type FSSyncProxy struct {
 	basePath   string
 
 	addedGlobs []string
+
+	dockerfile   []byte
+	dockerignore []byte
 }
 
-func NewFSSyncProxy(contextDir string, basePath string, addedGlobs []string) (*FSSyncProxy, error) {
+func NewFSSyncProxy(contextDir string, basePath string, addedGlobs []string,
+	dockerfile []byte, dockerignore []byte) (*FSSyncProxy, error) {
 
 	f := new(FSSyncProxy)
 	f.contextDir = contextDir
 	f.basePath = filepath.Join(basePath, f.String())
 	f.addedGlobs = addedGlobs
+
+	f.dockerfile = dockerfile
+	f.dockerignore = dockerignore
 	return f, nil
 }
 

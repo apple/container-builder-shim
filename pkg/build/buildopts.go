@@ -42,9 +42,8 @@ const (
 	KeyContentStoreName = "container"
 	// Base64-encoded Dockerfile contents.
 	KeyDockerfile = "dockerfile"
-	// Hidden directory for the dockerfile and dockerignore to be placed.
-	// This is provided when docker specific ignore file is found, which might live outside the build context.
-	KeyHiddenDockerDir = "hidden-docker-dir"
+	// Base64-encoded Dockerignore contents.
+	KeyDockerignore = "dockerignore"
 	// Image reference (name:tag) to assign to the built image.
 	KeyTag = "tag"
 	// Target platforms to build the image for.
@@ -74,28 +73,32 @@ const (
 )
 
 const (
+	// Used to share built artifacts outside VM
 	GlobalExportPath = "/var/lib/container-builder-shim/exports"
+	// If KeyDockerignore argument is provided, Dockerfile and ignore file are
+	// staged at DockerfileStaging directory, and buildkit uses them.
+	DockerfileStaging = fssync.DockerfileStaging
 )
 
 var keyBOpts = struct{}{}
 
 type BOpts struct {
-	BuildID         string
-	Dockerfile      []byte
-	Tag             string
-	ContextDir      string
-	HiddenDockerDir string
-	BuildPlatforms  []ocispecs.Platform
-	Platforms       []ocispecs.Platform
-	NoCache         bool
-	Target          string
-	BuildArgs       map[string]string
-	Secrets         map[string][]byte
-	CacheIn         []string
-	CacheOut        []string
-	Outputs         []string
-	Labels          map[string]string
-	ProgressWriter  progresswriter.Writer
+	BuildID        string
+	Dockerfile     []byte
+	Dockerignore   []byte
+	Tag            string
+	ContextDir     string
+	BuildPlatforms []ocispecs.Platform
+	Platforms      []ocispecs.Platform
+	NoCache        bool
+	Target         string
+	BuildArgs      map[string]string
+	Secrets        map[string][]byte
+	CacheIn        []string
+	CacheOut       []string
+	Outputs        []string
+	Labels         map[string]string
+	ProgressWriter progresswriter.Writer
 
 	ContentStore *content.ContentStoreProxy
 	Resolver     *resolver.ResolverProxy
@@ -129,7 +132,17 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return nil, err
 	}
 
-	hiddenDockerDir, _ := first(KeyHiddenDockerDir)
+	dockerignoreBase64Bytes, ok := first(KeyDockerignore)
+
+	dockerignoreBytes := []byte{}
+	if ok {
+		dockerignoreBytes, err = base64.StdEncoding.DecodeString(dockerignoreBase64Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		dockerignoreBytes = append(dockerignoreBytes, []byte("\n"+DockerfileStaging)...)
+	}
 
 	progress, ok := first(KeyProgress)
 	if !ok {
@@ -301,7 +314,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 	}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs)
+	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs, dockerfileBytes, dockerignoreBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -312,27 +325,27 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	}
 
 	bopts := &BOpts{
-		BuildID:         buildID,
-		Dockerfile:      dockerfileBytes,
-		Tag:             tag,
-		BuildPlatforms:  bps,
-		Platforms:       pls,
-		ContextDir:      ctxDir,
-		HiddenDockerDir: hiddenDockerDir,
-		ContentStore:    contentProxy,
-		FSSync:          fssyncProxy,
-		NoCache:         noCache,
-		Resolver:        resolver.NewResolverProxy(),
-		ProgressWriter:  pw,
-		Stdio:           stdioProxy,
-		Target:          target,
-		Labels:          labels,
-		BuildArgs:       buildArgs,
-		Secrets:         secrets,
-		CacheIn:         cacheIn,
-		CacheOut:        cacheOut,
-		Outputs:         outputs,
-		basePath:        filepath.Join(basePath, buildID),
+		BuildID:        buildID,
+		Dockerfile:     dockerfileBytes,
+		Dockerignore:   dockerignoreBytes,
+		Tag:            tag,
+		BuildPlatforms: bps,
+		Platforms:      pls,
+		ContextDir:     ctxDir,
+		ContentStore:   contentProxy,
+		FSSync:         fssyncProxy,
+		NoCache:        noCache,
+		Resolver:       resolver.NewResolverProxy(),
+		ProgressWriter: pw,
+		Stdio:          stdioProxy,
+		Target:         target,
+		Labels:         labels,
+		BuildArgs:      buildArgs,
+		Secrets:        secrets,
+		CacheIn:        cacheIn,
+		CacheOut:       cacheOut,
+		Outputs:        outputs,
+		basePath:       filepath.Join(basePath, buildID),
 	}
 
 	return bopts, nil
