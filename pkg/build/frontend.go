@@ -351,17 +351,17 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 
 	// 3rd return value is a list of SBOMTargets for this Image. Since container
 	// doesn't support this feature, we can safely ignore it for now
-	state, img, _, _, err := dockerfile2llb.Dockerfile2LLB(ctx, bopts.Dockerfile, convertOpt)
+	result, err := dockerfile2llb.Dockerfile2LLB(ctx, bopts.Dockerfile, convertOpt)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	def, err := state.Marshal(ctx)
+	def, err := result.State.Marshal(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	platform, err := state.GetPlatform(ctx)
+	platform, err := result.State.GetPlatform(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -387,7 +387,7 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 
 	// Handle metadata-only builds (ENV/ARG/LABEL without RUN/COPY/ADD)
 	if ref == nil {
-		if img == nil {
+		if result.Image == nil {
 			return nil, nil, ErrNoBuildDirectives
 		}
 
@@ -423,7 +423,7 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		return nil, nil, err
 	}
 
-	cfgJSON, err := json.Marshal(img)
+	cfgJSON, err := json.Marshal(result.Image)
 	if err != nil {
 		return nil, nil, err
 	}
