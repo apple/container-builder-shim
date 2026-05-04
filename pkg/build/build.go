@@ -31,6 +31,7 @@ import (
 	"github.com/moby/buildkit/cmd/buildctl/build"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
+	"github.com/moby/buildkit/session/sshforward/sshprovider"
 	"github.com/sirupsen/logrus"
 	"github.com/tonistiigi/go-csvvalue"
 	"google.golang.org/grpc"
@@ -64,7 +65,8 @@ func Build(ctx context.Context, opts *BOpts) error {
 
 	if len(exports) == 0 {
 		exports = append(exports, client.ExportEntry{
-			Type: "oci",
+			Type:  "oci",
+			Attrs: map[string]string{},
 		})
 	}
 
@@ -89,6 +91,10 @@ func Build(ctx context.Context, opts *BOpts) error {
 
 	var exportsWithOutput []client.ExportEntry
 	for _, export := range exports {
+		if export.Attrs == nil {
+			export.Attrs = map[string]string{}
+		}
+
 		switch export.Type {
 		case client.ExporterLocal:
 			localDest := filepath.Join(GlobalExportPath, opts.BuildID, "local")
@@ -166,6 +172,14 @@ func Build(ctx context.Context, opts *BOpts) error {
 		solveOpt.FrontendAttrs["label:"+k] = v
 	}
 	solveOpt.Frontend = "dockerfile.v1"
+
+	if len(opts.SSH) > 0 {
+		sshProvider, err := sshprovider.NewSSHAgentProvider(opts.SSH)
+		if err != nil {
+			return err
+		}
+		solveOpt.Session = append(solveOpt.Session, sshProvider)
+	}
 
 	_, err = buildkit.Build(opts.Context(ctx), solveOpt, "", frontend, opts.ProgressWriter.Status())
 	<-opts.ProgressWriter.Done()

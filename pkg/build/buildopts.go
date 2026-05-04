@@ -27,6 +27,7 @@ import (
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
+	"github.com/moby/buildkit/session/sshforward/sshprovider"
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -62,6 +63,8 @@ const (
 	KeyBuildArgs = "build-args"
 	// RUN --mount=type=secret,... id:value pairs passed to the Dockerfile.
 	KeySecrets = "secrets"
+	// SSH agent to forward during the build process.
+	KeySSH = "ssh"
 	// Cache import sources.
 	KeyCacheIn = "cache-in"
 	// Cache export destinations.
@@ -94,6 +97,7 @@ type BOpts struct {
 	Target         string
 	BuildArgs      map[string]string
 	Secrets        map[string][]byte
+	SSH            []sshprovider.AgentConfig
 	CacheIn        []string
 	CacheOut       []string
 	Outputs        []string
@@ -237,12 +241,42 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return args, nil
 	}
 
+	sshExtract := func(key string) []sshprovider.AgentConfig {
+		values, ok := contextMap[key]
+		if !ok {
+			return nil
+		}
+		agentConfigs := make([]sshprovider.AgentConfig, 0, len(values))
+		for _, value := range values {
+			id, path, hasPath := strings.Cut(value, "=")
+			id = strings.TrimSpace(id)
+			path = strings.TrimSpace(path)
+			if !hasPath && strings.HasPrefix(id, "/") {
+				path = id
+				id = "default"
+				hasPath = true
+			}
+			if id == "" {
+				id = "default"
+			}
+			config := sshprovider.AgentConfig{
+				ID: id,
+			}
+			if hasPath && path != "" {
+				config.Paths = []string{path}
+			}
+			agentConfigs = append(agentConfigs, config)
+		}
+		return agentConfigs
+	}
+
 	labels := mapExtract(KeyLabels)
 	buildArgs := mapExtract(KeyBuildArgs)
 	secrets, err := mapExtractB64(KeySecrets)
 	if err != nil {
 		return nil, err
 	}
+	ssh := sshExtract(KeySSH)
 	cacheIn := contextMap[KeyCacheIn]
 	cacheOut := contextMap[KeyCacheOut]
 	outputs := contextMap[KeyOutput]
@@ -342,6 +376,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		Labels:         labels,
 		BuildArgs:      buildArgs,
 		Secrets:        secrets,
+		SSH:            ssh,
 		CacheIn:        cacheIn,
 		CacheOut:       cacheOut,
 		Outputs:        outputs,
