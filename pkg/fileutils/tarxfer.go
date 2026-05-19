@@ -31,8 +31,16 @@ import (
 
 const DockerfileStaging = ".com.apple.container"
 
-// Receiver streams a remote tar archive, caches it under cacheBase and calls fn
-// for every entry that is a regular file, directory or symlink.
+// Receiver streams a tar archive from the macOS host, stores it in a
+// content-addressed cache under cacheBase, unpacks it, and walks the result.
+//
+// Symlinks are unpacked as real OS symlinks (os.Symlink). filepath.Walk does
+// not follow them, so they appear in the walked tree with their Linkname
+// intact. BuildKit decides at COPY/ADD time whether to dereference them based
+// on its own copy semantics.
+//
+// If the cache directory for the tar's content hash already exists the
+// download is skipped and the cached tree is used directly.
 type Receiver struct {
 	demux     *stream.Demultiplexer
 	cacheBase string

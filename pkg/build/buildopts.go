@@ -283,8 +283,10 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return nil, err
 	}
 
-	// do add .dockerignore support
-	// to ExcludePatterns(dockerignore) patterns
+	// addedGlobs is the fallback value for followpaths when BuildKit does not
+	// supply it. Pre-compute it by scanning the Dockerfile AST for COPY, ADD,
+	// and RUN --mount=type=bind source paths so the host packs only the files
+	// those instructions need rather than the entire context.
 	addedGlobs := []string{}
 	for _, node := range dockerfile.AST.Children {
 		if strings.EqualFold(node.Value, "COPY") || strings.EqualFold(node.Value, "ADD") {
