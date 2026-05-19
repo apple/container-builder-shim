@@ -32,9 +32,19 @@ import (
 )
 
 /*
-Walk is proxied over the gRPC stream to the caller.
+Walk requests build-context files from the macOS host and presents them to BuildKit.
 
-In JSON mode, the server sends file info as JSON; we walk those files directly.
+The host is asked for a tar archive containing the paths identified by
+followpaths (glob patterns BuildKit sends in the request metadata). The shim
+unpacks the tar to a content-addressed local cache and then walks the unpacked
+tree, filtering each entry through the exclude-patterns (from .dockerignore)
+before passing it to fn.
+
+Only TAR mode is supported. The JSON mode wire format is defined in
+RawFileInfo below but is not exercised by the current shim.
+
+If BuildKit does not supply followpaths, the shim falls back to addedGlobs —
+source paths pre-computed from the Dockerfile AST (see pkg/build/buildopts.go).
 
 Request Format:
 

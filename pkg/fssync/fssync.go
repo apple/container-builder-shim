@@ -39,8 +39,14 @@ var (
 	_ filesync.FileSyncServer = &FSSyncProxy{}
 )
 
-// A fsSync that proxies requests over the bidirectional grpc stream
-// It is used by buildkit to retrieve context directory and other build artifacts
+// FSSyncProxy implements BuildKit's filesync.FileSyncServer by proxying
+// file requests over the bidirectional gRPC stream to the macOS host.
+//
+// BuildKit drives the transfer by calling DiffCopy, which delegates to Walk
+// and FS.Open. Walk is the primary path: it sends a followpaths request to
+// the host, receives a tar archive, unpacks it to a content-addressed local
+// cache, and presents the result to BuildKit. FS.Open falls back to direct
+// Info/Read host calls only when the cache is unpopulated.
 type FSSyncProxy struct {
 	stream.UnimplementedBaseStage
 	filesync.UnimplementedFileSyncServer

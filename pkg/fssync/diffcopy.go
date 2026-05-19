@@ -32,8 +32,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// DiffCopy from fsutil pkg uses a smaller buffer size. This implementation
-// is essentially the same except for larger buffers
+// DiffCopy handles BuildKit's primary file-transfer path.
+//
+// It calls Walk to request a tar of the build context from the host, then
+// concurrently serves PACKET_REQ requests from BuildKit by reading files from
+// the local unpacked cache. The buffer size is larger than fsutil's default
+// to reduce syscall overhead for large files.
 func (f *FSSyncProxy) DiffCopy(ss filesync.FileSync_DiffCopyServer) error {
 	ctx := ss.Context()
 	fs := NewFS(ctx, f, f.contextDir, f.basePath)
