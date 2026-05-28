@@ -31,8 +31,9 @@ RUN GOARCH=${TARGETARCH:-arm64} GOOS=${TARGETOS:-linux} CGO_ENABLED=0 go build \
 
 # Final Image
 FROM ${FINAL_IMAGE} AS final
-LABEL org.opencontainers.image.source=https://github.com/apple/container-builder-shim 
+LABEL org.opencontainers.image.source=https://github.com/apple/container-builder-shim
 RUN apk add --no-cache ca-certificates
 COPY --from=build-base /usr/local/bin/container-builder-shim /usr/local/bin/container-builder-shim
+COPY LICENSE NOTICE.md /licenses/
 
 ENTRYPOINT ["/usr/local/bin/container-builder-shim"]
