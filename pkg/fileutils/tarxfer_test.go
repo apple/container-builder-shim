@@ -114,6 +114,92 @@ func TestReceiver_Receive_Success(t *testing.T) {
 	}
 }
 
+func TestReceiver_Receive_OverflowsDemuxChannel(t *testing.T) {
+	// Regression: a context transfer that produces more BuildTransfer
+	// packets than the demux channel can hold must not drop the
+	// complete=true marker. Accept must apply backpressure rather
+	// than drop. Without that, the receiver hung forever waiting on
+	// a packet that would never arrive.
+	archive, err := makeTar()
+	if err != nil {
+		t.Fatalf("makeTar: %v", err)
+	}
+	if len(archive) < 512 {
+		t.Fatalf("tar archive too small: %d", len(archive))
+	}
+	hashBytes := sha256.Sum256(archive)
+	hash := hex.EncodeToString(hashBytes[:])
+	header := archive[:512]
+	body := archive[512:]
+
+	// Split the body into enough chunks to exceed the demux channel
+	// capacity, forcing the producer to wait on backpressure.
+	const chunkSize = 16
+	chunks := make([][]byte, 0, len(body)/chunkSize+1)
+	for i := 0; i < len(body); i += chunkSize {
+		end := i + chunkSize
+		if end > len(body) {
+			end = len(body)
+		}
+		chunks = append(chunks, body[i:end])
+	}
+	for len(chunks) < 64 {
+		chunks = append(chunks, []byte{})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	demux := newDemux(ctx)
+
+	producerErr := make(chan error, 1)
+	go func() {
+		defer close(producerErr)
+		if err := demux.Accept(btPacket(nil, false, map[string]string{"hash": hash})); err != nil {
+			producerErr <- err
+			return
+		}
+		if err := demux.Accept(btPacket(header, false, nil)); err != nil {
+			producerErr <- err
+			return
+		}
+		for i, chunk := range chunks {
+			isLast := i == len(chunks)-1
+			if err := demux.Accept(btPacket(chunk, isLast, nil)); err != nil {
+				producerErr <- err
+				return
+			}
+		}
+	}()
+
+	tmpDir := t.TempDir()
+	r := NewTarReceiver(tmpDir, demux)
+
+	var visited []string
+	walkFn := func(p string, _ fs.DirEntry, _ error) error {
+		visited = append(visited, p)
+		return nil
+	}
+
+	start := time.Now()
+	checksum, err := r.Receive(ctx, []byte{}, []byte{}, walkFn)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Receive failed after %v: %v", elapsed, err)
+	}
+	if err := <-producerErr; err != nil {
+		t.Fatalf("producer Accept failed: %v", err)
+	}
+	if checksum != hash {
+		t.Fatalf("checksum mismatch: want %s, got %s", hash, checksum)
+	}
+	if len(visited) != 1 || visited[0] != "file1" {
+		t.Fatalf("unexpected visited paths: %v", visited)
+	}
+	if fi, err := os.Stat(filepath.Join(tmpDir, checksum, "file1")); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("extracted file missing or not regular: %v", err)
+	}
+}
+
 func TestReceiver_Receive_ServerError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

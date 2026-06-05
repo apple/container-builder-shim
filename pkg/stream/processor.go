@@ -58,7 +58,9 @@ func (d *Demultiplexer) Closed() bool {
 	return d.ctx.Err() != nil
 }
 
-// Accept validates & enqueues a packet.
+// Accept enqueues a packet for the demux consumer. The send blocks
+// when the channel is full to apply backpressure. Returns the demux
+// ctx error if cancelled before the packet is enqueued.
 func (d *Demultiplexer) Accept(c *api.ClientStream) error {
 	if err := d.filter(c); err != nil {
 		return err
@@ -70,10 +72,6 @@ func (d *Demultiplexer) Accept(c *api.ClientStream) error {
 		return d.ctx.Err()
 	case d.ch <- c:
 		return nil
-	default:
-		// Channel is full - clean it up to prevent future packets from being sent here
-		d.closeFn(d.id)
-		return ErrDemuxChannelFull
 	}
 }
 

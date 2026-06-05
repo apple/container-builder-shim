@@ -27,7 +27,6 @@ var (
 	ErrNoHandlerFound    = errors.New("no handler found for packet")
 	ErrNotATTY           = errors.New("not a tty")
 	ErrSendStreamBlocked = errors.New("send stream is blocked")
-	ErrDemuxChannelFull  = errors.New("demux channel full")
 )
 
 type UninitializedStageErr string
