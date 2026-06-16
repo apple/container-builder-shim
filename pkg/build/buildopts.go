@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -73,6 +74,15 @@ const (
 	KeyOutput = "outputs"
 	// Unique build identifier.
 	KeyBuildID = "build-id"
+	// BuildKit frontend name (e.g. dockerfile.v0, gateway.v0).
+	KeyFrontend = "frontend"
+	// Frontend option key=value pairs passed to BuildKit.
+	KeyFrontendOpt = "frontend-opt"
+)
+
+const (
+	frontendDockerfileV0 = "dockerfile.v0"
+	frontendGatewayV0    = "gateway.v0"
 )
 
 const (
@@ -82,6 +92,32 @@ const (
 	// staged at DockerfileStaging directory, and buildkit uses them.
 	DockerfileStaging = fssync.DockerfileStaging
 )
+
+func mapExtract(contextMap map[string][]string, key string) map[string]string {
+	values, ok := contextMap[key]
+	if !ok {
+		return map[string]string{}
+	}
+	args := map[string]string{}
+	for _, label := range values {
+		parts := strings.SplitN(label, "=", 2)
+		switch len(parts) {
+		case 1:
+			args[parts[0]] = ""
+		case 2:
+			args[parts[0]] = parts[1]
+		}
+	}
+	return args
+}
+
+func first(contextMap map[string][]string, key string) (string, bool) {
+	values, ok := contextMap[key]
+	if !ok || len(values) == 0 {
+		return "", false
+	}
+	return values[0], true
+}
 
 var keyBOpts = struct{}{}
 
@@ -109,24 +145,18 @@ type BOpts struct {
 	FSSync       *fssync.FSSyncProxy
 	Stdio        *stdio.StdioProxy
 
+	frontend frontendSettings
+
 	basePath string
 }
 
 func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]string) (*BOpts, error) {
-	first := func(key string) (string, bool) {
-		values, ok := contextMap[key]
-		if !ok {
-			return "", false
-		}
-		return values[0], true
-	}
-
-	buildID, ok := first(KeyBuildID)
+	buildID, ok := first(contextMap, KeyBuildID)
 	if !ok {
 		return nil, ErrMissingBuildID
 	}
 
-	dockerfileBase64Bytes, ok := first(KeyDockerfile)
+	dockerfileBase64Bytes, ok := first(contextMap, KeyDockerfile)
 	if !ok {
 		return nil, ErrMissingContextDockerfile
 	}
@@ -136,10 +166,10 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return nil, err
 	}
 
-	dockerignoreBase64Bytes, ok := first(KeyDockerignore)
+	dockerignoreBase64Bytes, dockerignoreProvided := first(contextMap, KeyDockerignore)
 
 	dockerignoreBytes := []byte{}
-	if ok {
+	if dockerignoreProvided {
 		dockerignoreBytes, err = base64.StdEncoding.DecodeString(dockerignoreBase64Bytes)
 		if err != nil {
 			return nil, err
@@ -148,7 +178,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		dockerignoreBytes = append(dockerignoreBytes, []byte("\n"+DockerfileStaging)...)
 	}
 
-	progress, ok := first(KeyProgress)
+	progress, ok := first(contextMap, KeyProgress)
 	if !ok {
 		progress = "auto"
 	}
@@ -159,17 +189,17 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	}
 
 	noCache := false
-	if _, ok := first(KeyNoCache); ok {
+	if _, ok := first(contextMap, KeyNoCache); ok {
 		noCache = true
 	}
 
-	tag, ok := first(KeyTag)
+	tag, ok := first(contextMap, KeyTag)
 	if !ok {
 		return nil, ErrMissingContextRef
 	}
 
 	ctxDir := "."
-	if c, ok := first(KeyContext); ok {
+	if c, ok := first(contextMap, KeyContext); ok {
 		ctxDir = c
 	}
 
@@ -198,27 +228,10 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	}
 
 	target := ""
-	if tStr, ok := first(KeyTarget); ok {
+	if tStr, ok := first(contextMap, KeyTarget); ok {
 		target = tStr
 	}
 
-	mapExtract := func(key string) map[string]string {
-		values, ok := contextMap[key]
-		if !ok {
-			return map[string]string{}
-		}
-		args := map[string]string{}
-		for _, label := range values {
-			parts := strings.SplitN(label, "=", 2)
-			switch len(parts) {
-			case 1:
-				args[parts[0]] = ""
-			case 2:
-				args[parts[0]] = parts[1]
-			}
-		}
-		return args
-	}
 	mapExtractB64 := func(key string) (map[string][]byte, error) {
 		values, ok := contextMap[key]
 		if !ok {
@@ -280,8 +293,16 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return agentConfigs, nil
 	}
 
-	labels := mapExtract(KeyLabels)
-	buildArgs := mapExtract(KeyBuildArgs)
+	labels := mapExtract(contextMap, KeyLabels)
+	buildArgs := mapExtract(contextMap, KeyBuildArgs)
+	frontend := resolveFrontend(dockerfileBytes, buildArgs, contextMap)
+	if err := validateFrontend(frontend); err != nil {
+		return nil, err
+	}
+	if !frontend.native() {
+		dockerignoreBytes = ensureDockerfileStagingExcluded(dockerignoreBytes)
+	}
+	stageBuildDefinition := dockerignoreProvided || !frontend.native()
 	secrets, err := mapExtractB64(KeySecrets)
 	if err != nil {
 		return nil, err
@@ -299,14 +320,84 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return nil, err
 	}
 
-	dockerfile, err := parser.Parse(bytes.NewReader(dockerfileBytes))
+	var addedGlobs []string
+	if frontend.native() {
+		addedGlobs, buildArgs, err = parseDockerfileMetadata(dockerfileBytes, buildArgs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	pw, err := progresswriter.NewPrinter(ctx, stdioProxy, progress)
 	if err != nil {
 		return nil, err
 	}
 
-	_, metaArgs, err := instructions.Parse(dockerfile.AST, nil)
+	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs, dockerfileBytes, dockerignoreBytes, stageBuildDefinition)
 	if err != nil {
 		return nil, err
+	}
+
+	contentProxy, err := content.NewContentStoreProxy()
+	if err != nil {
+		return nil, err
+	}
+
+	bopts := &BOpts{
+		BuildID:        buildID,
+		Dockerfile:     dockerfileBytes,
+		Dockerignore:   dockerignoreBytes,
+		Tag:            tag,
+		BuildPlatforms: bps,
+		Platforms:      pls,
+		ContextDir:     ctxDir,
+		ContentStore:   contentProxy,
+		FSSync:         fssyncProxy,
+		NoCache:        noCache,
+		Resolver:       resolver.NewResolverProxy(),
+		ProgressWriter: pw,
+		Stdio:          stdioProxy,
+		Target:         target,
+		Labels:         labels,
+		BuildArgs:      buildArgs,
+		Secrets:        secrets,
+		SSH:            ssh,
+		CacheIn:        cacheIn,
+		CacheOut:       cacheOut,
+		Outputs:        outputs,
+		frontend:       frontend,
+		basePath:       filepath.Join(basePath, buildID),
+	}
+
+	return bopts, nil
+}
+
+func ensureDockerfileStagingExcluded(dockerignore []byte) []byte {
+	if bytes.Contains(dockerignore, []byte(DockerfileStaging)) {
+		return dockerignore
+	}
+	if len(dockerignore) == 0 {
+		return []byte(DockerfileStaging + "\n")
+	}
+	return append(dockerignore, []byte("\n"+DockerfileStaging)...)
+}
+
+func validateFrontend(frontend frontendSettings) error {
+	if frontend.Name == frontendDockerfileV0 {
+		return fmt.Errorf("frontend %q is not supported; use # syntax= or BUILDKIT_SYNTAX instead", frontendDockerfileV0)
+	}
+	return nil
+}
+
+func parseDockerfileMetadata(dockerfileBytes []byte, buildArgs map[string]string) ([]string, map[string]string, error) {
+	dockerfile, err := parser.Parse(bytes.NewReader(dockerfileBytes))
+	if err != nil {
+		return nil, buildArgs, err
+	}
+
+	_, metaArgs, err := instructions.Parse(dockerfile.AST, nil)
+	if err != nil {
+		return nil, buildArgs, err
 	}
 
 	for _, metaArg := range metaArgs {
@@ -318,16 +409,11 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 			// Expand with prior args and strip shell quotes
 			resolved, err := shell.NewLex('\\').ProcessWordWithMatches(arg.ValueString(), utils.NewMapGetter(buildArgs))
 			if err != nil {
-				return nil, err
+				return nil, buildArgs, err
 			}
 			// Save the resolved value for later use
 			buildArgs[arg.Key] = resolved.Result
 		}
-	}
-
-	pw, err := progresswriter.NewPrinter(ctx, stdioProxy, progress)
-	if err != nil {
-		return nil, err
 	}
 
 	// addedGlobs is the fallback value for followpaths when BuildKit does not
@@ -363,42 +449,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 	}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs, dockerfileBytes, dockerignoreBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	contentProxy, err := content.NewContentStoreProxy()
-	if err != nil {
-		return nil, err
-	}
-
-	bopts := &BOpts{
-		BuildID:        buildID,
-		Dockerfile:     dockerfileBytes,
-		Dockerignore:   dockerignoreBytes,
-		Tag:            tag,
-		BuildPlatforms: bps,
-		Platforms:      pls,
-		ContextDir:     ctxDir,
-		ContentStore:   contentProxy,
-		FSSync:         fssyncProxy,
-		NoCache:        noCache,
-		Resolver:       resolver.NewResolverProxy(),
-		ProgressWriter: pw,
-		Stdio:          stdioProxy,
-		Target:         target,
-		Labels:         labels,
-		BuildArgs:      buildArgs,
-		Secrets:        secrets,
-		SSH:            ssh,
-		CacheIn:        cacheIn,
-		CacheOut:       cacheOut,
-		Outputs:        outputs,
-		basePath:       filepath.Join(basePath, buildID),
-	}
-
-	return bopts, nil
+	return addedGlobs, buildArgs, nil
 }
 
 func (b *BOpts) Context(parent context.Context) context.Context {
