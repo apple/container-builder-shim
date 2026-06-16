@@ -111,7 +111,7 @@ image: build-linux
 	container build -t $(BINARY_NAME):$(GIT_TAG) .
 
 .PHONY: release
-release: fmt vet lint test build-linux docker-image
+release: fmt vet lint test image
 
 .PHONY: clean
 clean:
