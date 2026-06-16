@@ -65,6 +65,8 @@ const (
 	KeySecrets = "secrets"
 	// SSH agent to forward during the build process.
 	KeySSH = "ssh"
+	// Build context transfer mode: "tar" (default) or "json" (metadata-only, content fetched on demand).
+	KeyTransferMode = "transfer-mode"
 	// Cache import sources.
 	KeyCacheIn = "cache-in"
 	// Cache export destinations.
@@ -277,6 +279,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return nil, err
 	}
 	ssh := sshExtract(KeySSH)
+	transferMode, _ := first(KeyTransferMode)
 	cacheIn := contextMap[KeyCacheIn]
 	cacheOut := contextMap[KeyCacheOut]
 	outputs := contextMap[KeyOutput]
@@ -350,7 +353,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 	}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs, dockerfileBytes, dockerignoreBytes)
+	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs, dockerfileBytes, dockerignoreBytes, transferMode)
 	if err != nil {
 		return nil, err
 	}

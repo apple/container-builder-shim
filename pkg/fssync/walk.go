@@ -18,9 +18,11 @@ package fssync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/moby/patternmatcher"
@@ -90,7 +92,7 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	cancellableCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	walkMeta, err := unmarshalWalkMetadata(cancellableCtx)
+	walkMeta, err := unmarshalWalkMetadata(cancellableCtx, f.proxy.mode)
 	if err != nil {
 		return err
 	}
@@ -150,9 +152,99 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 		defer f._checksumMutex.Unlock()
 		f._checksum = checksum
 		return nil
+	case ModeJSON:
+		return receiveJSON(demux, excludeMatcher, f.proxy.dockerfile, f.proxy.dockerignore, fn)
 	default:
 		return fmt.Errorf("unsupported walk mode: %q", walkMeta.Mode)
 	}
+}
+
+// receiveJSON handles ModeJSON walk responses. The proxy sends a single
+// BuildTransfer whose Data field is a JSON array of RawFileInfo. File contents
+// are not transferred here; they are fetched on-demand via FS.Open.
+func receiveJSON(demux *stream.Demultiplexer, excludeMatcher *patternmatcher.PatternMatcher, dockerfile, dockerignore []byte, fn fs.WalkDirFunc) error {
+	resp, err := demux.Recv()
+	if err != nil {
+		return fmt.Errorf("json walk: failed receiving response: %w", err)
+	}
+	bt := resp.GetBuildTransfer()
+	if bt == nil {
+		return fmt.Errorf("json walk: expected BuildTransfer, got nil")
+	}
+	if errMsg, ok := bt.Metadata["error"]; ok {
+		return fmt.Errorf("json walk: server error: %s", errMsg)
+	}
+
+	var files []RawFileInfo
+	if err := json.Unmarshal(bt.Data, &files); err != nil {
+		return fmt.Errorf("json walk: failed to unmarshal file list: %w", err)
+	}
+
+	// Staged Dockerfile/dockerignore live under DockerfileStaging (".com.apple.container").
+	// That prefix starts with '.' which sorts before any regular path component,
+	// so these entries must be emitted BEFORE the regular file list.
+	if len(dockerignore) > 0 {
+		stagingDir := DockerfileStaging
+		dirEntry := &fileutils.FileInfo{
+			NameVal:  stagingDir,
+			ModeVal:  fs.ModeDir | 0755,
+			IsDirVal: true,
+		}
+		if err := fn(stagingDir, fs.FileInfoToDirEntry(dirEntry), nil); err != nil {
+			return err
+		}
+		for _, staged := range []struct {
+			name string
+			data []byte
+		}{
+			{"Dockerfile", dockerfile},
+			{"Dockerfile.dockerignore", dockerignore},
+		} {
+			path := stagingDir + "/" + staged.name
+			fi := &fileutils.FileInfo{
+				NameVal: path,
+				SizeVal: int64(len(staged.data)),
+				ModeVal: 0644,
+			}
+			if err := fn(path, fs.FileInfoToDirEntry(fi), nil); err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, f := range files {
+		excluded, err := excludeMatcher.MatchesOrParentMatches(f.Name)
+		if err != nil {
+			return err
+		}
+		if excluded {
+			continue
+		}
+		modTime, err := time.Parse(time.RFC3339, f.ModTime)
+		if err != nil {
+			modTime = time.Time{}
+		}
+		modeVal := fs.FileMode(f.Mode)
+		if f.IsDir {
+			modeVal |= fs.ModeDir
+		} else if f.Target != "" {
+			modeVal |= fs.ModeSymlink
+		}
+		fi := &fileutils.FileInfo{
+			NameVal:    f.Name,
+			SizeVal:    int64(f.Size),
+			ModeVal:    modeVal,
+			ModTimeVal: modTime,
+			IsDirVal:   f.IsDir,
+			Uid:        f.UID,
+			Gid:        f.GID,
+			LinkName:   f.Target,
+		}
+		if err := fn(f.Name, fs.FileInfoToDirEntry(fi), nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RawFileInfo is the wire‑format for Walk (json mode).
@@ -175,23 +267,13 @@ type WalkMetadata struct {
 	Mode             TransferMode
 }
 
-func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
-	md := &WalkMetadata{}
+func unmarshalWalkMetadata(ctx context.Context, mode TransferMode) (*WalkMetadata, error) {
+	md := &WalkMetadata{Mode: mode}
 	if m, ok := metadata.FromIncomingContext(ctx); ok {
 		md.IncludePatterns = strings.Join(m["include-patterns"], ",")
 		md.ExcludedPatterns = strings.Join(m["exclude-patterns"], ",")
 		md.FollowPaths = strings.Join(m["followpaths"], ",")
 		md.DirName = strings.Join(m["dir-name"], ",")
-		modeStr := strings.Join(m["mode"], ",")
-		switch modeStr {
-		case "", "tar":
-			modeStr = string(ModeTAR)
-		default:
-			return nil, fmt.Errorf("invalid walk mode: %s", modeStr)
-		}
-		md.Mode = TransferMode(modeStr)
-	} else {
-		md.Mode = ModeTAR
 	}
 	return md, nil
 }
