@@ -22,13 +22,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	gofs "io/fs"
 	"testing"
 	"time"
 
 	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/apple/container-builder-shim/pkg/stream"
-	"google.golang.org/grpc/metadata"
 )
 
 func (p *FSSyncProxy) RegisterDemux(id string, d *stream.Demultiplexer) {
@@ -74,6 +74,29 @@ func makeNestedTarHeaderAndBody() (checksum string, full []byte) {
 func (p *FSSyncProxy) Send(s *api.ServerStream) error {
 	id := s.BuildId
 	d := demuxes[id]
+
+	bt := s.GetBuildTransfer()
+	if bt != nil && bt.Metadata["mode"] == string(ModeJSON) {
+		files := []RawFileInfo{
+			{Name: "dir", Mode: 0o755, IsDir: true, ModTime: time.Now().UTC().Format(time.RFC3339)},
+			{Name: "dir/file.txt", Size: 42, Mode: 0o644, IsDir: false, ModTime: time.Now().UTC().Format(time.RFC3339)},
+		}
+		data, _ := json.Marshal(files)
+		go func() {
+			_ = d.Accept(&api.ClientStream{
+				BuildId: id,
+				PacketType: &api.ClientStream_BuildTransfer{
+					BuildTransfer: &api.BuildTransfer{
+						Id:       id,
+						Complete: true,
+						Data:     data,
+					},
+				},
+			})
+		}()
+		return nil
+	}
+
 	checksum, full := makeNestedTarHeaderAndBody()
 	go func() {
 		_ = d.Accept(&api.ClientStream{
@@ -113,7 +136,7 @@ func (p *FSSyncProxy) Send(s *api.ServerStream) error {
 }
 
 func TestUnmarshalWalkMetadata_Defaults(t *testing.T) {
-	md, err := unmarshalWalkMetadata(context.Background())
+	md, err := unmarshalWalkMetadata(context.Background(), ModeTAR)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -122,19 +145,11 @@ func TestUnmarshalWalkMetadata_Defaults(t *testing.T) {
 	}
 }
 
-func TestUnmarshalWalkMetadata_InvalidMode(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("mode", "json"))
-	_, err := unmarshalWalkMetadata(ctx)
-	if err == nil {
-		t.Fatal("expected error for unsupported mode 'json', got nil")
-	}
-}
-
 func TestWalk_UnsupportedMode(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("mode", "json"))
-	fs := NewFS(ctx, &FSSyncProxy{}, "/", t.TempDir()) // proxy never used
+	// A zero-value FSSyncProxy has mode="" which is not a recognised TransferMode.
+	fs := NewFS(context.Background(), &FSSyncProxy{}, "/", t.TempDir())
 	var fn gofs.WalkDirFunc = func(string, gofs.DirEntry, error) error { return nil }
-	err := fs.Walk(ctx, "", fn)
+	err := fs.Walk(context.Background(), "", fn)
 	if err == nil {
 		t.Fatal("Walk returned nil error, want unsupported-mode error")
 	}
@@ -145,7 +160,7 @@ func TestWalk_TarModeSuccess(t *testing.T) {
 
 	_, full := makeNestedTarHeaderAndBody()
 
-	fs := NewFS(context.Background(), &FSSyncProxy{}, "/", tmp)
+	fs := NewFS(context.Background(), &FSSyncProxy{mode: ModeTAR}, "/", tmp)
 
 	var walked []string
 	err := fs.Walk(context.Background(), "", func(path string, _ gofs.DirEntry, _ error) error {
@@ -162,5 +177,35 @@ func TestWalk_TarModeSuccess(t *testing.T) {
 	}
 	if len(walked) == 0 {
 		t.Errorf("walk callback not invoked")
+	}
+}
+
+func TestWalk_JSONModeSuccess(t *testing.T) {
+	fs := NewFS(context.Background(), &FSSyncProxy{mode: ModeJSON}, "/", t.TempDir())
+
+	type result struct {
+		path  string
+		isDir bool
+		mode  gofs.FileMode
+	}
+	var walked []result
+	err := fs.Walk(context.Background(), "", func(path string, d gofs.DirEntry, _ error) error {
+		info, _ := d.Info()
+		walked = append(walked, result{path: path, isDir: d.IsDir(), mode: info.Mode()})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Walk returned err=%v", err)
+	}
+	if len(walked) != 2 {
+		t.Fatalf("got %d entries, want 2", len(walked))
+	}
+	if walked[0].path != "dir" || !walked[0].isDir || walked[0].mode&gofs.ModeDir == 0 {
+		t.Errorf("entry[0]: got path=%q isDir=%v mode=%v, want dir entry with ModeDir set",
+			walked[0].path, walked[0].isDir, walked[0].mode)
+	}
+	if walked[1].path != "dir/file.txt" || walked[1].isDir {
+		t.Errorf("entry[1]: got path=%q isDir=%v, want dir/file.txt regular file",
+			walked[1].path, walked[1].isDir)
 	}
 }
