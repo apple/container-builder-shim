@@ -96,6 +96,7 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	if err != nil {
 		return err
 	}
+
 	excludeMatcher, err := patternmatcher.New(strings.Split(walkMeta.ExcludedPatterns, ","))
 	if err != nil {
 		return err
@@ -183,31 +184,40 @@ func receiveJSON(demux *stream.Demultiplexer, excludeMatcher *patternmatcher.Pat
 	// Staged Dockerfile/dockerignore live under DockerfileStaging (".com.apple.container").
 	// That prefix starts with '.' which sorts before any regular path component,
 	// so these entries must be emitted BEFORE the regular file list.
+	// Skip the staging dir entirely when it is covered by the exclude patterns
+	// (e.g. a docker-specific .dockerignore appends ".com.apple.container"); this
+	// mirrors the TAR-mode path where filepath.Walk hits the same exclude filter.
 	if len(dockerignore) > 0 {
 		stagingDir := DockerfileStaging
-		dirEntry := &fileutils.FileInfo{
-			NameVal:  stagingDir,
-			ModeVal:  fs.ModeDir | 0755,
-			IsDirVal: true,
-		}
-		if err := fn(stagingDir, fs.FileInfoToDirEntry(dirEntry), nil); err != nil {
+		stagingExcluded, err := excludeMatcher.MatchesOrParentMatches(stagingDir)
+		if err != nil {
 			return err
 		}
-		for _, staged := range []struct {
-			name string
-			data []byte
-		}{
-			{"Dockerfile", dockerfile},
-			{"Dockerfile.dockerignore", dockerignore},
-		} {
-			path := stagingDir + "/" + staged.name
-			fi := &fileutils.FileInfo{
-				NameVal: path,
-				SizeVal: int64(len(staged.data)),
-				ModeVal: 0644,
+		if !stagingExcluded {
+			dirEntry := &fileutils.FileInfo{
+				NameVal:  stagingDir,
+				ModeVal:  fs.ModeDir | 0755,
+				IsDirVal: true,
 			}
-			if err := fn(path, fs.FileInfoToDirEntry(fi), nil); err != nil {
+			if err := fn(stagingDir, fs.FileInfoToDirEntry(dirEntry), nil); err != nil {
 				return err
+			}
+			for _, staged := range []struct {
+				name string
+				data []byte
+			}{
+				{"Dockerfile", dockerfile},
+				{"Dockerfile.dockerignore", dockerignore},
+			} {
+				path := stagingDir + "/" + staged.name
+				fi := &fileutils.FileInfo{
+					NameVal: path,
+					SizeVal: int64(len(staged.data)),
+					ModeVal: 0644,
+				}
+				if err := fn(path, fs.FileInfoToDirEntry(fi), nil); err != nil {
+					return err
+				}
 			}
 		}
 	}
