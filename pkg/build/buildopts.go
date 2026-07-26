@@ -53,8 +53,8 @@ const (
 	KeyProgress = "progress"
 	// When present, disables layer caching.
 	KeyNoCache = "no-cache"
-	// Build context directory path.
-	KeyContext = "context"
+	// Build base context directory path.
+	KeyContextDirectory = "context"
 	// Dockerfile stage to build up to.
 	KeyTarget = "target"
 	// Key=value metadata labels to apply to the image.
@@ -73,6 +73,8 @@ const (
 	KeyOutput = "outputs"
 	// Unique build identifier.
 	KeyBuildID = "build-id"
+	// Additional Build contexts (--build-context).
+	KeyBuildContext = "build-context"
 )
 
 const (
@@ -103,6 +105,7 @@ type BOpts struct {
 	Outputs        []string
 	Labels         map[string]string
 	ProgressWriter progresswriter.Writer
+	BuildContexts  map[string]string
 
 	ContentStore *content.ContentStoreProxy
 	Resolver     *resolver.ResolverProxy
@@ -169,7 +172,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	}
 
 	ctxDir := "."
-	if c, ok := first(KeyContext); ok {
+	if c, ok := first(KeyContextDirectory); ok {
 		ctxDir = c
 	}
 
@@ -272,6 +275,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 
 	labels := mapExtract(KeyLabels)
 	buildArgs := mapExtract(KeyBuildArgs)
+	buildContexts := mapExtract(KeyBuildContext)
 	secrets, err := mapExtractB64(KeySecrets)
 	if err != nil {
 		return nil, err
@@ -350,7 +354,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 	}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs, dockerfileBytes, dockerignoreBytes)
+	fssyncProxy, err := fssync.NewFSSyncProxy(ctxDir, basePath, addedGlobs, dockerfileBytes, dockerignoreBytes, buildContexts)
 	if err != nil {
 		return nil, err
 	}
@@ -383,6 +387,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		CacheOut:       cacheOut,
 		Outputs:        outputs,
 		basePath:       filepath.Join(basePath, buildID),
+		BuildContexts:  buildContexts,
 	}
 
 	return bopts, nil
