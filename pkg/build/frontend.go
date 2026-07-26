@@ -29,6 +29,7 @@ import (
 	"github.com/containerd/platforms"
 	dref "github.com/distribution/reference"
 
+	"github.com/apple/container-builder-shim/pkg/build/utils"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
@@ -42,8 +43,6 @@ import (
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
-
-	"github.com/apple/container-builder-shim/pkg/build/utils"
 )
 
 func frontend(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
@@ -131,6 +130,79 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 	stateLock := sync.Mutex{}
 
 	resolveSource := func(resolvedBaseStageName string, sourcePlatform ocispecs.Platform) error {
+
+		saveState := func(img []byte, fqdn string, ref string, storeName string, opts ...llb.OCILayoutOption) error {
+			opts = append(opts, llb.Platform(sourcePlatform))
+			opts = append(opts, llb.OCIStore("", storeName))
+
+			st := llb.OCILayout(fqdn, opts...)
+
+			st, err = st.WithImageConfig(img)
+			if err != nil {
+				return err
+			}
+
+			named, err := dref.ParseNormalizedNamed(ref)
+			if err != nil {
+				return fmt.Errorf("invalid context name %s %v", ref, err)
+			}
+			// pname constructs a platform-qualified image reference in the format buildkit requires for digest resolution
+			name := strings.TrimSuffix(dref.FamiliarString(named), ":latest")
+			pname := name + "::" + platforms.FormatAll(platforms.Normalize(sourcePlatform))
+
+			imgMetaMap := map[string][]byte{
+				exptypes.ExporterImageConfigKey: img,
+			}
+			imgMeta, err := json.Marshal(imgMetaMap)
+			if err != nil {
+				return err
+			}
+
+			stateLock.Lock()
+			states[pname] = stateMeta{
+				state:   st.Platform(sourcePlatform),
+				imgMeta: imgMeta,
+			}
+			stateLock.Unlock()
+			return nil
+		}
+
+		// handle build context
+		if val, ok := bopts.BuildContexts[resolvedBaseStageName]; ok {
+			// oci-layout requires custom handling as namedContext cannot load from client correctly
+			if strings.SplitN(val, ":", 2)[0] != "oci-layout" {
+				return nil
+			}
+			// passing in "oci-layout" as they are so client side knows that it is oci from build-context
+			resolverOpts := sourceresolver.Opt{}
+			resolverOpts.ImageOpt = &sourceresolver.ResolveImageOpt{
+				Platform:    &sourcePlatform,
+				ResolveMode: llb.ResolveModePreferLocal.String(),
+			}
+			resolverOpts.OCILayoutOpt = &sourceresolver.ResolveOCILayoutOpt{
+				Store: sourceresolver.ResolveImageConfigOptStore{
+					StoreID:   resolvedBaseStageName,
+					SessionID: "",
+				},
+			}
+			_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, val, resolverOpts)
+			if err != nil {
+				if err == reference.ErrObjectRequired {
+					return nil
+				}
+				return err
+			}
+
+			// not using the returning `ref` here as the `ref` will be the local path like /User/path/to/oci-layout
+			// However, when using resolvedBaseStageName directly (ex: deps),
+			// and if we don't add some dummy host like "docker.io/library/".
+			// we will get an error like following
+			// Error: unknown: "failed to solve: failed to load cache key: parse "dummy://deps@sha256:xxx": invalid port ":xxx" after host"
+			ref := resolvedBaseStageName
+			fqdn := "docker.io/library/" + ref + "@" + digest.String()
+			return saveState(img, fqdn, ref, resolvedBaseStageName, llb.WithCustomName("[context "+resolvedBaseStageName+"] OCI load from client"))
+		}
+
 		if strings.EqualFold(resolvedBaseStageName, "scratch") || strings.EqualFold(resolvedBaseStageName, "context") {
 			return nil
 		}
@@ -152,7 +224,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 		}
 		resolverOpts.OCILayoutOpt = &sourceresolver.ResolveOCILayoutOpt{
 			Store: sourceresolver.ResolveImageConfigOptStore{
-				StoreID:   "container",
+				StoreID:   KeyContentStoreName,
 				SessionID: "",
 			},
 		}
@@ -175,31 +247,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 		if _, ok := ref.(dref.Digested); !ok {
 			fqdn += "@" + digest.String()
 		}
-		st := llb.OCILayout(fqdn, llb.OCIStore("", "container"), llb.Platform(sourcePlatform))
-
-		named, err := dref.ParseNormalizedNamed(ref.String())
-		if err != nil {
-			return fmt.Errorf("invalid context name %s %v", ref.String(), err)
-		}
-		// pname constructs a platform-qualified image reference in the format buildkit requires for digest resolution
-		name := strings.TrimSuffix(dref.FamiliarString(named), ":latest")
-		pname := name + "::" + platforms.FormatAll(platforms.Normalize(sourcePlatform))
-
-		imgMetaMap := map[string][]byte{
-			exptypes.ExporterImageConfigKey: img,
-		}
-		imgMeta, err := json.Marshal(imgMetaMap)
-		if err != nil {
-			return err
-		}
-
-		stateLock.Lock()
-		states[pname] = stateMeta{
-			state:   st.Platform(sourcePlatform),
-			imgMeta: imgMeta,
-		}
-		stateLock.Unlock()
-		return nil
+		return saveState(img, fqdn, ref.String(), KeyContentStoreName)
 	}
 
 	for i, stage := range stages {
