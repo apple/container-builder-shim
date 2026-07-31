@@ -58,10 +58,12 @@ type FSSyncProxy struct {
 
 	dockerfile   []byte
 	dockerignore []byte
+
+	mode TransferMode
 }
 
 func NewFSSyncProxy(contextDir string, basePath string, addedGlobs []string,
-	dockerfile []byte, dockerignore []byte) (*FSSyncProxy, error) {
+	dockerfile []byte, dockerignore []byte, mode string) (*FSSyncProxy, error) {
 
 	f := new(FSSyncProxy)
 	f.contextDir = contextDir
@@ -70,6 +72,13 @@ func NewFSSyncProxy(contextDir string, basePath string, addedGlobs []string,
 
 	f.dockerfile = dockerfile
 	f.dockerignore = dockerignore
+
+	switch TransferMode(mode) {
+	case ModeJSON:
+		f.mode = ModeJSON
+	default:
+		f.mode = ModeTAR
+	}
 	return f, nil
 }
 

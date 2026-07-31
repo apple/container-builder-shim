@@ -73,7 +73,18 @@ BuildKit ──► PACKET_REQ             (for each regular file it needs)
 BuildKit ◄── PACKET_DATA            (shim reads from local cache)
 ```
 
-There is also a fallback path (`Info` → `Read`) used by `FS.Open` when the local cache is unpopulated — a narrow race window at the start of a build. The host enforces the same boundary rules on this path.
+There is also a fallback path (`Info` → `Read`) used by `FS.Open` when the local cache is unpopulated — a narrow race window at the start of a build in `tar` mode (see below). The host enforces the same boundary rules on this path.
+
+### Transfer modes
+
+The Walk phase supports two modes, selected by the `transfer-mode` build option (`tar`, the default, or `json`) and fixed for the lifetime of the build's `FSSyncProxy`:
+
+| Mode | Walk response | File content |
+|---|---|---|
+| **`tar`** | Host packs matching paths into a tar archive, which the shim unpacks into a content-addressed local cache. | Served from the local cache via `DiffCopy`. `FS.Open`'s `Info`/`Read` fallback is only hit in the narrow window before the cache is populated. |
+| **`json`** | Host returns a single JSON array of file metadata (name, size, mode, modtime, uid/gid, symlink target) — no file bytes. | Not transferred during Walk. `FS.Open` fetches each file's content from the host on demand, per file, as BuildKit requests it — the `Info`/`Read` round-trip is the normal path in this mode, not a fallback. |
+
+In both modes, staged `Dockerfile`/`.dockerignore` entries (see below) are synthesized locally by the shim and injected into the file list before `.dockerignore` exclusion is applied.
 
 ### Context boundary rules
 
@@ -91,7 +102,7 @@ These rules govern how files are selected, transferred, and presented. They refl
 
 ### `.dockerignore`
 
-`.dockerignore` filtering is the shim's responsibility, not the host's. After unpacking the tar, the shim walks the cache directory and applies the `exclude-patterns` received from BuildKit before emitting `PACKET_STAT` entries. The host has no knowledge of `.dockerignore`.
+`.dockerignore` filtering is the shim's responsibility, not the host's. The shim applies the `exclude-patterns` received from BuildKit to each file entry — walked from the unpacked tar cache in `tar` mode, or from the host's JSON metadata list in `json` mode — before emitting `PACKET_STAT` entries. The host has no knowledge of `.dockerignore`.
 
 ### `followpaths`
 
