@@ -36,14 +36,19 @@ import (
 /*
 Walk requests build-context files from the macOS host and presents them to BuildKit.
 
-The host is asked for a tar archive containing the paths identified by
-followpaths (glob patterns BuildKit sends in the request metadata). The shim
-unpacks the tar to a content-addressed local cache and then walks the unpacked
-tree, filtering each entry through the exclude-patterns (from .dockerignore)
-before passing it to fn.
+The mode is fixed for the lifetime of the FSSyncProxy (via the transfer-mode
+build option; see pkg/build/buildopts.go) and applies to every Walk call:
 
-Only TAR mode is supported. The JSON mode wire format is defined in
-RawFileInfo below but is not exercised by the current shim.
+  - TAR: the host packs the paths identified by followpaths into a tar
+    archive. The shim unpacks it to a content-addressed local cache and walks
+    the unpacked tree, filtering each entry through the exclude-patterns
+    (from .dockerignore) before passing it to fn. File content is served from
+    the cache; see FS.Open.
+  - JSON: the host returns a single BuildTransfer whose Data is a JSON array
+    of RawFileInfo — metadata only, no file content. The shim filters each
+    entry through the same exclude-patterns and passes it to fn directly (see
+    receiveJSON). File content is fetched on demand later via FS.Open's
+    Info/Read round-trip to the host.
 
 If BuildKit does not supply followpaths, the shim falls back to addedGlobs —
 source paths pre-computed from the Dockerfile AST (see pkg/build/buildopts.go).
@@ -62,28 +67,24 @@ Request Format:
 	    }
 	}
 
-Depending on the specified mode, the server may respond with file info in JSON format,
-or send a tar archive for remote file data.
+Response Format ('tar' mode): a tar archive streamed as one or more
+BuildTransfer packets, unpacked by fileutils.TarReceiver.
 
-Response Format ('json' mode):
+Response Format ('json' mode): a single BuildTransfer whose Data is a JSON
+array of RawFileInfo, e.g.
 
-	BuildTransfer {
-	    ID: $uuid,
-	    Direction: INTO,
-	    Source: $path,
-	    Metadata: {
-	        "os":          "linux",
-	        "stage":       "fssync",
-	        "method":      "Walk",
-	        "size":        "$size",
-	        "mode":        $file_mode, // uint32 value
-	        "modified_at": "$modified_timestamp",
-	        "uid":         $uid,
-	        "gid":         $gid,
-	    },
-	    "is_directory": $is_directory,
-	    "complete":     "true"
-	}
+	[
+	    {
+	        "name":    "some/path",
+	        "size":    1234,
+	        "mode":    420,
+	        "isDir":   false,
+	        "modTime": "2026-07-31T00:00:00Z",
+	        "uid":     0,
+	        "gid":     0,
+	        "target":  ""
+	    }
+	]
 
 In TAR mode, the server sends a tar archive; we unpack it locally and then walk
 the resulting directory paths.
