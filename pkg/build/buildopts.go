@@ -241,11 +241,20 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return args, nil
 	}
 
-	sshExtract := func(key string) []sshprovider.AgentConfig {
+	sshExtract := func(key string) ([]sshprovider.AgentConfig, error) {
 		values, ok := contextMap[key]
 		if !ok {
-			return nil
+			return nil, nil
 		}
+		if len(values) != 1 {
+			return nil, ErrInvalidSSH
+		}
+
+		value := strings.TrimSpace(values[0])
+		if value != "default" {
+			return nil, ErrInvalidSSH
+		}
+
 		agentConfigs := make([]sshprovider.AgentConfig, 0, len(values))
 		for _, value := range values {
 			id, path, hasPath := strings.Cut(value, "=")
@@ -267,7 +276,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 			}
 			agentConfigs = append(agentConfigs, config)
 		}
-		return agentConfigs
+		return agentConfigs, nil
 	}
 
 	labels := mapExtract(KeyLabels)
@@ -276,7 +285,10 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	if err != nil {
 		return nil, err
 	}
-	ssh := sshExtract(KeySSH)
+	ssh, err := sshExtract(KeySSH)
+	if err != nil {
+		return nil, err
+	}
 	cacheIn := contextMap[KeyCacheIn]
 	cacheOut := contextMap[KeyCacheOut]
 	outputs := contextMap[KeyOutput]
