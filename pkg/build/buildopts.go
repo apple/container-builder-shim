@@ -246,13 +246,14 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		if !ok {
 			return nil, nil
 		}
+		// Only --ssh default is supported for now, so all other cases are rejected.
 		if len(values) != 1 {
-			return nil, ErrInvalidSSH
+			return nil, ErrUnsupportedSSH
 		}
 
 		value := strings.TrimSpace(values[0])
 		if value != "default" {
-			return nil, ErrInvalidSSH
+			return nil, ErrUnsupportedSSH
 		}
 
 		agentConfigs := make([]sshprovider.AgentConfig, 0, len(values))
