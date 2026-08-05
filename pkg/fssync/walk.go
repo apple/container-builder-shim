@@ -107,11 +107,17 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	if followPaths == "" {
 		followPaths = strings.Join(f.proxy.addedGlobs, ",")
 	}
+	root := f.root
+	if walkMeta.DirName != "" && walkMeta.DirName != "context" && walkMeta.DirName != "scratch" {
+		if val, ok := f.proxy.buildContexts[walkMeta.DirName]; ok {
+			root = val
+		}
+	}
 
 	packet := &api.BuildTransfer{
 		Id:        id,
 		Direction: api.TransferDirection_OUTOF,
-		Source:    &f.root,
+		Source:    &root,
 		Metadata: map[string]string{
 			"os":               "linux",
 			"stage":            "fssync",
