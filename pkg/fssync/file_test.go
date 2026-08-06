@@ -195,7 +195,7 @@ func TestOpen_UsesCachedFilePath(t *testing.T) {
 		t.Fatalf("write cache file: %v", err)
 	}
 
-	fs := NewFS(nil, &FSSyncProxy{}, "/", tmp)
+	fs := NewFS(nil, &FSSyncProxy{}, "/", tmp, "")
 	fs._checksum = checksum
 
 	rc, err := fs.Open(rel)

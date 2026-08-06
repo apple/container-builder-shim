@@ -132,7 +132,7 @@ func TestUnmarshalWalkMetadata_InvalidMode(t *testing.T) {
 
 func TestWalk_UnsupportedMode(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("mode", "json"))
-	fs := NewFS(ctx, &FSSyncProxy{}, "/", t.TempDir()) // proxy never used
+	fs := NewFS(ctx, &FSSyncProxy{}, "/", t.TempDir(), "") // proxy never used
 	var fn gofs.WalkDirFunc = func(string, gofs.DirEntry, error) error { return nil }
 	err := fs.Walk(ctx, "", fn)
 	if err == nil {
@@ -145,7 +145,7 @@ func TestWalk_TarModeSuccess(t *testing.T) {
 
 	_, full := makeNestedTarHeaderAndBody()
 
-	fs := NewFS(context.Background(), &FSSyncProxy{}, "/", tmp)
+	fs := NewFS(context.Background(), &FSSyncProxy{}, "/", tmp, "")
 
 	var walked []string
 	err := fs.Walk(context.Background(), "", func(path string, _ gofs.DirEntry, _ error) error {

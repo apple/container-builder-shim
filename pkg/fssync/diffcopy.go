@@ -40,7 +40,19 @@ import (
 // to reduce syscall overhead for large files.
 func (f *FSSyncProxy) DiffCopy(ss filesync.FileSync_DiffCopyServer) error {
 	ctx := ss.Context()
-	fs := NewFS(ctx, f, f.contextDir, f.basePath)
+	// The dir-name gRPC metadata names which local dir BuildKit is syncing:
+	// the primary context, the dockerfile dir, or a named build context.
+	// BuildKit sets it on every FSSync request and its own provider resolves
+	// it through a registered directory source, so a name is all the requester
+	// ever supplies. It is fixed for the lifetime of one DiffCopy stream, so
+	// resolve it here and relay it on every packet; the host maps the name to
+	// a directory and enforces containment there.
+	// https://github.com/moby/buildkit/blob/v0.29.0/session/filesync/filesync.go
+	dirName := ""
+	if walkMeta, err := unmarshalWalkMetadata(ctx); err == nil {
+		dirName = walkMeta.DirName
+	}
+	fs := NewFS(ctx, f, f.contextDir, f.basePath, dirName)
 	s := &sender{
 		conn:         &syncStream{Stream: ss},
 		fs:           fs,

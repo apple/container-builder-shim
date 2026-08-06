@@ -173,13 +173,20 @@ func Build(ctx context.Context, opts *BOpts) error {
 	}
 	for name, ref := range opts.BuildContexts {
 		switch strings.SplitN(ref, ":", 2)[0] {
-		case "docker-image", "git", "http", "https":
+		case "docker-image", "git", "http", "https", "ssh", "local", "input":
 			solveOpt.FrontendAttrs["context:"+name] = ref
 		case "oci-layout":
 			// oci-layout requires custom handling as it needs to load the layout data from the client
 			// not setting solveOpt.FrontendAttrs["context:"+name] here for the frontend can handle it because namedcontext will resolve
 			solveOpt.OCIStores[name] = opts.ContentStore
-		default: // bare path → local context
+		default:
+			// The dockerfile frontend accepts a bare git@host:path SSH ref
+			// and rewrites it to the git scheme itself; everything else
+			// bare is a local directory the host serves under this name.
+			if strings.HasPrefix(ref, "git@") {
+				solveOpt.FrontendAttrs["context:"+name] = ref
+				continue
+			}
 			solveOpt.FrontendAttrs["context:"+name] = "local:" + name
 		}
 	}

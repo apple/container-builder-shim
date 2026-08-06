@@ -38,8 +38,11 @@ type File struct {
 	proxy    *FSSyncProxy
 	index    int64
 	filePath string
-	rs       io.ReadSeekCloser
-	buf      []byte
+	// dirName names the BuildKit local dir this file belongs to, so the host
+	// resolves reads against the matching context root.
+	dirName string
+	rs      io.ReadSeekCloser
+	buf     []byte
 }
 
 func (f *File) ReadAt(p []byte, off int64) (n int, err error) {
@@ -206,11 +209,12 @@ func (f *File) packetReadAt(offset, length int64) *api.BuildTransfer {
 		Direction: api.TransferDirection_OUTOF,
 		Source:    &name,
 		Metadata: map[string]string{
-			"os":     "linux",
-			"stage":  "fssync",
-			"method": "Read",
-			"offset": fmt.Sprintf("%d", offset),
-			"length": fmt.Sprintf("%d", length),
+			"os":       "linux",
+			"stage":    "fssync",
+			"method":   "Read",
+			"dir-name": f.dirName,
+			"offset":   fmt.Sprintf("%d", offset),
+			"length":   fmt.Sprintf("%d", length),
 		},
 	}
 }

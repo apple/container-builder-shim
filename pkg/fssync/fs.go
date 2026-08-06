@@ -45,19 +45,25 @@ type FS struct {
 	proxy  *FSSyncProxy
 	root   string
 	fsPath string
-	ctx    context.Context
+	// dirName is the BuildKit local-dir name this DiffCopy session serves
+	// ("context" or a named build context). It is relayed to the host, which
+	// owns the name-to-directory mapping and containment enforcement; the shim
+	// never resolves a context name to a host path itself.
+	dirName string
+	ctx     context.Context
 
 	// internally used fields - do not manipulate directly
 	_checksumMutex *sync.Mutex
 	_checksum      string
 }
 
-func NewFS(ctx context.Context, proxy *FSSyncProxy, root string, fsPath string) *FS {
+func NewFS(ctx context.Context, proxy *FSSyncProxy, root string, fsPath string, dirName string) *FS {
 	return &FS{
-		ctx:    ctx,
-		proxy:  proxy,
-		root:   root,
-		fsPath: fsPath,
+		ctx:     ctx,
+		proxy:   proxy,
+		root:    root,
+		dirName: dirName,
+		fsPath:  fsPath,
 
 		_checksumMutex: &sync.Mutex{},
 	}
@@ -85,9 +91,10 @@ func (f *FS) Open(path string) (io.ReadCloser, error) {
 		Direction: api.TransferDirection_OUTOF,
 		Source:    &path,
 		Metadata: map[string]string{
-			"os":     "linux",
-			"stage":  "fssync",
-			"method": "Info",
+			"os":       "linux",
+			"stage":    "fssync",
+			"method":   "Info",
+			"dir-name": f.dirName,
 		},
 	}
 	resp, err := f.proxy.Request(ctx, &api.ServerStream{
@@ -113,6 +120,7 @@ func (f *FS) Open(path string) (io.ReadCloser, error) {
 		info:     info,
 		proxy:    f.proxy,
 		filePath: filePath,
+		dirName:  f.dirName,
 		rs:       rs,
 	}, nil
 }

@@ -367,7 +367,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		}
 	}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(ctxDir, basePath, addedGlobs, dockerfileBytes, dockerignoreBytes, buildContexts)
+	fssyncProxy, err := fssync.NewFSSyncProxy(ctxDir, basePath, addedGlobs, dockerfileBytes, dockerignoreBytes)
 	if err != nil {
 		return nil, err
 	}
