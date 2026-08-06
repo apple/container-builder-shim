@@ -25,6 +25,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,7 +105,10 @@ func TestReceiver_Receive_Success(t *testing.T) {
 		t.Fatalf("checksum mismatch: want %s, got %s", hash, checksum)
 	}
 
-	if len(visited) != 1 || visited[0] != "file1" {
+	// The walk sees the transferred content plus the always-staged dockerfile
+	// pair; the fssync layer decides which walks may list the staging dir.
+	want := []string{DockerfileStaging, DockerfileStaging + "/Dockerfile", DockerfileStaging + "/Dockerfile.dockerignore", "file1"}
+	if !slices.Equal(visited, want) {
 		t.Fatalf("unexpected visited paths: %v", visited)
 	}
 
@@ -192,7 +196,10 @@ func TestReceiver_Receive_OverflowsDemuxChannel(t *testing.T) {
 	if checksum != hash {
 		t.Fatalf("checksum mismatch: want %s, got %s", hash, checksum)
 	}
-	if len(visited) != 1 || visited[0] != "file1" {
+	// The walk sees the transferred content plus the always-staged dockerfile
+	// pair; the fssync layer decides which walks may list the staging dir.
+	want := []string{DockerfileStaging, DockerfileStaging + "/Dockerfile", DockerfileStaging + "/Dockerfile.dockerignore", "file1"}
+	if !slices.Equal(visited, want) {
 		t.Fatalf("unexpected visited paths: %v", visited)
 	}
 	if fi, err := os.Stat(filepath.Join(tmpDir, checksum, "file1")); err != nil || !fi.Mode().IsRegular() {

@@ -35,6 +35,7 @@ import (
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
+	"github.com/moby/buildkit/frontend/dockerfile/linter"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	"github.com/moby/buildkit/frontend/dockerui"
@@ -380,7 +381,10 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		return nil, nil, err
 	}
 
-	_, err = cl.ReadEntrypoint(ctx, "dockerfile")
+	src, err := cl.ReadEntrypoint(ctx, "dockerfile")
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// The dockerui client has already parsed every frontend attr into its
 	// Config: extra hosts, hostname, shm size, ulimits, cgroup parent,
@@ -394,6 +398,19 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		MetaResolver:   bopts.Resolver,
 		LLBCaps:        &capset,
 		Client:         cl,
+		SourceMap:      src.SourceMap,
+		Warn: func(rulename, description, url, msg string, location []parser.Range) {
+			// Lint findings (BUILDKIT_DOCKERFILE_CHECK) surface through this
+			// callback; without it they are computed and dropped. The shape is
+			// the reference frontend's.
+			// https://github.com/moby/buildkit/blob/v0.29.0/frontend/dockerfile/builder/build.go
+			startLine := 0
+			if len(location) > 0 {
+				startLine = location[0].Start.Line
+			}
+			src.Warn(ctx, linter.LintFormatShort(rulename, msg, startLine),
+				warnOpts(location, [][]byte{[]byte(description)}, url))
+		},
 	}
 
 	convertOpt.BuildPlatforms = bopts.BuildPlatforms
@@ -535,4 +552,28 @@ func globalArgs(buildPlatform, targetPlatform ocispecs.Platform, buildArgs map[s
 		args[k] = v
 	}
 	return utils.NewMapGetter(args)
+}
+
+// warnOpts shapes a lint finding's location into the gateway warning the
+// progress stream renders, as BuildKit's own dockerfile frontend does.
+// https://github.com/moby/buildkit/blob/v0.29.0/frontend/dockerfile/builder/build.go
+func warnOpts(r []parser.Range, detail [][]byte, url string) gateway.WarnOpts {
+	opts := gateway.WarnOpts{Level: 1, Detail: detail, URL: url}
+	if r == nil {
+		return opts
+	}
+	opts.Range = []*pb.Range{}
+	for _, r := range r {
+		opts.Range = append(opts.Range, &pb.Range{
+			Start: &pb.Position{
+				Line:      int32(r.Start.Line),
+				Character: int32(r.Start.Character),
+			},
+			End: &pb.Position{
+				Line:      int32(r.End.Line),
+				Character: int32(r.End.Character),
+			},
+		})
+	}
+	return opts
 }

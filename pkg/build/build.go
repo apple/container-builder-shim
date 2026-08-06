@@ -143,9 +143,7 @@ func Build(ctx context.Context, opts *BOpts) error {
 		KeyContentStoreName: opts.ContentStore,
 	}
 
-	if len(opts.Dockerignore) > 0 {
-		solveOpt.FrontendAttrs["filename"] = filepath.Join(DockerfileStaging, "Dockerfile")
-	}
+	solveOpt.FrontendAttrs["filename"] = filepath.Join(DockerfileStaging, "Dockerfile")
 
 	if opts.NoCache {
 		solveOpt.FrontendAttrs["no-cache"] = ""

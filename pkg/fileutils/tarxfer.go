@@ -95,10 +95,12 @@ func (r *Receiver) Receive(ctx context.Context, dockerfile []byte, dockerignore 
 		_ = os.Remove(tarFile)
 	}
 
-	if len(dockerignore) > 0 {
-		if err := stageDockerfiles(ctx, cacheDir, dockerfile, dockerignore); err != nil {
-			return "", err
-		}
+	// Stage unconditionally: the frontend's entrypoint read resolves the
+	// filename attr against this staging path, and it must succeed for every
+	// build (source-mapped errors and lint findings hang off it), not only
+	// for builds that carry a dockerignore.
+	if err := stageDockerfiles(ctx, cacheDir, dockerfile, dockerignore); err != nil {
+		return "", err
 	}
 
 	return checksum, filepath.Walk(cacheDir, func(p string, info os.FileInfo, _ error) error {

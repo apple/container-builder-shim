@@ -132,9 +132,17 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 
 	switch walkMeta.Mode {
 	case ModeTAR:
+		// The staging dir is shim plumbing, not context content. Only the
+		// entrypoint read follows into it (the filename attr points there);
+		// a context enumeration must not list it, or it would end up copied
+		// into images as part of the context.
+		followsStaging := strings.Contains(followPaths, DockerfileStaging)
 		receiver := fileutils.NewTarReceiver(f.fsPath, demux)
 		checksum, err := receiver.Receive(ctx, f.proxy.dockerfile, f.proxy.dockerignore,
 			func(path string, d fs.DirEntry, err error) error {
+				if !followsStaging && (path == DockerfileStaging || strings.HasPrefix(path, DockerfileStaging+"/")) {
+					return nil
+				}
 				excluded, err := excludeMatcher.MatchesOrParentMatches(path)
 				if excluded {
 					return nil
