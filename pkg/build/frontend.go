@@ -382,7 +382,14 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 
 	_, err = cl.ReadEntrypoint(ctx, "dockerfile")
 
+	// The dockerui client has already parsed every frontend attr into its
+	// Config: extra hosts, hostname, shm size, ulimits, cgroup parent,
+	// network mode, source-date epoch. Hand that whole Config to the
+	// converter, the same way BuildKit's own dockerfile frontend does;
+	// per-field copies below override the parts this shim decides itself.
+	// https://github.com/moby/buildkit/blob/v0.29.0/frontend/dockerfile/builder/build.go
 	convertOpt := dockerfile2llb.ConvertOpt{
+		Config:         cl.Config,
 		TargetPlatform: &pl,
 		MetaResolver:   bopts.Resolver,
 		LLBCaps:        &capset,
