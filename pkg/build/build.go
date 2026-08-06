@@ -171,6 +171,30 @@ func Build(ctx context.Context, opts *BOpts) error {
 	for k, v := range opts.Labels {
 		solveOpt.FrontendAttrs["label:"+k] = v
 	}
+
+	// Sandbox settings the dockerfile frontend applies to every RUN. The value
+	// shapes are the frontend's: add-hosts and ulimit are CSV records, shm-size
+	// is a byte count, force-network-mode is one of none/host/sandbox, and the
+	// hostname has a build-arg spelling the frontend folds into the same field.
+	// https://github.com/moby/buildkit/blob/v0.29.0/frontend/dockerui/attr.go
+	if len(opts.AddHosts) > 0 {
+		solveOpt.FrontendAttrs["add-hosts"] = strings.Join(opts.AddHosts, ",")
+	}
+	if opts.Hostname != "" {
+		solveOpt.FrontendAttrs["hostname"] = opts.Hostname
+	}
+	if opts.ShmSize != "" {
+		solveOpt.FrontendAttrs["shm-size"] = opts.ShmSize
+	}
+	if len(opts.Ulimits) > 0 {
+		solveOpt.FrontendAttrs["ulimit"] = strings.Join(opts.Ulimits, ",")
+	}
+	if opts.CgroupParent != "" {
+		solveOpt.FrontendAttrs["cgroup-parent"] = opts.CgroupParent
+	}
+	if opts.Network != "" {
+		solveOpt.FrontendAttrs["force-network-mode"] = opts.Network
+	}
 	for name, ref := range opts.BuildContexts {
 		switch strings.SplitN(ref, ":", 2)[0] {
 		case "docker-image", "git", "http", "https", "ssh", "local", "input":

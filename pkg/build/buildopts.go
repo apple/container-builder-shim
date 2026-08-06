@@ -75,6 +75,18 @@ const (
 	KeyBuildID = "build-id"
 	// Additional Build contexts (--build-context).
 	KeyBuildContext = "build-context"
+	// Extra host-to-IP entries resolvable inside every RUN.
+	KeyAddHost = "add-host"
+	// Hostname the build sandbox reports.
+	KeyHostname = "hostname"
+	// Size of /dev/shm in the build sandbox, in bytes.
+	KeyShmSize = "shm-size"
+	// Resource limits applied to the build sandbox.
+	KeyUlimit = "ulimit"
+	// cgroup the build sandbox is placed under.
+	KeyCgroupParent = "cgroup-parent"
+	// Network mode for every RUN: none, host or sandbox.
+	KeyNetwork = "network"
 )
 
 const (
@@ -106,6 +118,12 @@ type BOpts struct {
 	Labels         map[string]string
 	ProgressWriter progresswriter.Writer
 	BuildContexts  map[string]string
+	AddHosts       []string
+	Hostname       string
+	ShmSize        string
+	Ulimits        []string
+	CgroupParent   string
+	Network        string
 
 	ContentStore *content.ContentStoreProxy
 	Resolver     *resolver.ResolverProxy
@@ -122,6 +140,11 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 			return "", false
 		}
 		return values[0], true
+	}
+
+	firstOrEmpty := func(key string) string {
+		value, _ := first(key)
+		return value
 	}
 
 	buildID, ok := first(KeyBuildID)
@@ -394,6 +417,12 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		Target:         target,
 		Labels:         labels,
 		BuildArgs:      buildArgs,
+		AddHosts:       contextMap[KeyAddHost],
+		Hostname:       firstOrEmpty(KeyHostname),
+		ShmSize:        firstOrEmpty(KeyShmSize),
+		Ulimits:        contextMap[KeyUlimit],
+		CgroupParent:   firstOrEmpty(KeyCgroupParent),
+		Network:        firstOrEmpty(KeyNetwork),
 		Secrets:        secrets,
 		SSH:            ssh,
 		CacheIn:        cacheIn,
