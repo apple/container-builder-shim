@@ -136,7 +136,13 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 		// entrypoint read follows into it (the filename attr points there);
 		// a context enumeration must not list it, or it would end up copied
 		// into images as part of the context.
-		followsStaging := strings.Contains(followPaths, DockerfileStaging)
+		followsStaging := false
+		for _, p := range strings.Split(followPaths, ",") {
+			if p == DockerfileStaging || strings.HasPrefix(p, DockerfileStaging+"/") {
+				followsStaging = true
+				break
+			}
+		}
 		receiver := fileutils.NewTarReceiver(f.fsPath, demux)
 		checksum, err := receiver.Receive(ctx, f.proxy.dockerfile, f.proxy.dockerignore,
 			func(path string, d fs.DirEntry, err error) error {

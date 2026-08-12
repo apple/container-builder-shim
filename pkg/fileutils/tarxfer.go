@@ -338,21 +338,8 @@ func stageDockerfiles(ctx context.Context, cacheDir string, dockerfile []byte, d
 		return err
 	}
 
-	dockerfilePath := filepath.Join(staging, "Dockerfile")
-	f, err := os.OpenFile(dockerfilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(staging, "Dockerfile"), dockerfile, 0o644); err != nil {
 		return err
 	}
-	f.Write(dockerfile)
-	f.Close()
-
-	dockerignorePath := filepath.Join(staging, "Dockerfile.dockerignore")
-	f, err = os.OpenFile(dockerignorePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	f.Write(dockerignore)
-	f.Close()
-
-	return nil
+	return os.WriteFile(filepath.Join(staging, "Dockerfile.dockerignore"), dockerignore, 0o644)
 }
