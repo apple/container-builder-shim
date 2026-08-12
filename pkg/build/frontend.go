@@ -25,7 +25,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/containerd/containerd/reference"
 	"github.com/containerd/platforms"
 	dref "github.com/distribution/reference"
 
@@ -188,9 +187,6 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			}
 			_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, val, resolverOpts)
 			if err != nil {
-				if err == reference.ErrObjectRequired {
-					return nil
-				}
 				return err
 			}
 
@@ -210,9 +206,6 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 
 		ref, err := dref.ParseAnyReference(resolvedBaseStageName)
 		if err != nil {
-			if err == reference.ErrObjectRequired {
-				return nil
-			}
 			return fmt.Errorf("invalid ref: %s", resolvedBaseStageName)
 		}
 
@@ -238,9 +231,6 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 		// due to the addition of the default domain.
 		_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, resolvedBaseStageName, resolverOpts)
 		if err != nil {
-			if err == reference.ErrObjectRequired {
-				return nil
-			}
 			return err
 		}
 
