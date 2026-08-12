@@ -33,7 +33,9 @@ var DefaultConfig = BuildkitdConfig{
 			Enabled:        true,
 			RuncBinaryPath: "/usr/bin/buildkit-runc",
 			GC:             true,
-			GCKeepStorage:  int64Ptr(1 << 35), // 32 GB
+			ReservedSpace:  int64Ptr(8 << 30),  // 8 GB
+			MaxUsedSpace:   int64Ptr(32 << 30), // 32 GB
+			MinFreeSpace:   int64Ptr(10 << 30), // 10 GB
 			GCPolicy:       []GCPolicyRule{},
 		},
 	},
@@ -76,8 +78,15 @@ type OCIWorkerConfig struct {
 	Enabled        bool   `toml:"enabled"`
 	RuncBinaryPath string `toml:"binary"`
 
-	GC            bool           `toml:"gc"`
-	GCKeepStorage *int64         `toml:"gckeepstorage,omitempty"`
+	GC bool `toml:"gc"`
+	// The disk bound the daemon's garbage collector holds the cache to:
+	// keep reservedSpace of cache, collect down toward it past maxUsedSpace,
+	// and collect harder when the disk's own free space falls under
+	// minFreeSpace. Bytes, buildkitd.toml.md@v0.26.2.
+	// https://github.com/moby/buildkit/blob/v0.26.2/docs/buildkitd.toml.md
+	ReservedSpace *int64         `toml:"reservedSpace,omitempty"`
+	MaxUsedSpace  *int64         `toml:"maxUsedSpace,omitempty"`
+	MinFreeSpace  *int64         `toml:"minFreeSpace,omitempty"`
 	GCPolicy      []GCPolicyRule `toml:"gcpolicy,omitempty"`
 }
 
