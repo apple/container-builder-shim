@@ -19,7 +19,7 @@ package utils
 import (
 	"sort"
 
-	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/platforms"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
