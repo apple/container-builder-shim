@@ -138,7 +138,7 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 
 			st := llb.OCILayout(fqdn, opts...)
 
-			st, err = st.WithImageConfig(img)
+			st, err := st.WithImageConfig(img)
 			if err != nil {
 				return err
 			}
