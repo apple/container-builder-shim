@@ -87,6 +87,7 @@ github.com/docker/cli/cli/config/configfile
 github.com/docker/cli/cli/config/credentials
 github.com/docker/cli/cli/config/memorystore
 github.com/docker/cli/cli/config/types
+github.com/docker/cli/cli/connhelper/commandconn
 # github.com/docker/docker-credential-helpers v0.9.5
 ## explicit; go 1.21
 github.com/docker/docker-credential-helpers/client
@@ -173,6 +174,7 @@ github.com/moby/buildkit/api/types
 github.com/moby/buildkit/client
 github.com/moby/buildkit/client/buildid
 github.com/moby/buildkit/client/connhelper
+github.com/moby/buildkit/client/connhelper/ssh
 github.com/moby/buildkit/client/llb
 github.com/moby/buildkit/client/llb/imagemetaresolver
 github.com/moby/buildkit/client/llb/sourceresolver

@@ -95,6 +95,13 @@ var app = &cobra.Command{
 
 		errCh := make(chan error)
 		go func() {
+			if remote := os.Getenv("BUILDKIT_HOST"); remote != "" {
+				// A remote engine leaves the local daemon with nothing to
+				// do, so none is launched; the builds this shim mediates
+				// dial the named address instead.
+				log.Infof("BUILDKIT_HOST=%s; not launching a local buildkitd", remote)
+				return
+			}
 			config := buildkit.DefaultConfig
 			for _, rm := range registryMirrors {
 				parts := strings.Split(rm, "=")
@@ -124,7 +131,11 @@ var app = &cobra.Command{
 				config.Worker.OCI.RuncBinaryPath = runcPath
 			}
 
-			errCh <- buildkit.Start(cancellableCtx, config, buildkitdPath)
+			// Arguments after -- belong to buildkitd verbatim, the way
+			// buildx's --buildkitd-flags hands flags to the daemon it
+			// manages, so the daemon stays configurable without this shim
+			// naming every knob.
+			errCh <- buildkit.Start(cancellableCtx, config, append([]string{buildkitdPath}, args...)...)
 		}()
 
 		go func() {

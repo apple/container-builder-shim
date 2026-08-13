@@ -32,7 +32,8 @@ RUN GOARCH=${TARGETARCH:-arm64} GOOS=${TARGETOS:-linux} CGO_ENABLED=0 go build \
 # Final Image
 FROM ${FINAL_IMAGE} AS final
 LABEL org.opencontainers.image.source=https://github.com/apple/container-builder-shim
-RUN apk add --no-cache ca-certificates
+# openssh-client carries the ssh the BUILDKIT_HOST ssh scheme executes.
+RUN apk add --no-cache ca-certificates openssh-client
 COPY --from=build-base /usr/local/bin/container-builder-shim /usr/local/bin/container-builder-shim
 COPY LICENSE NOTICE.md /licenses/
 

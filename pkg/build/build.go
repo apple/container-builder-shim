@@ -28,6 +28,13 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/moby/buildkit/client"
+
+	// Registers the ssh scheme for BUILDKIT_HOST addresses: the client
+	// executes `ssh <host> buildctl dial-stdio` on the peer and speaks over
+	// the command's standard streams, the way buildctl and buildx reach
+	// remote daemons.
+	// https://github.com/moby/buildkit/blob/master/client/connhelper/ssh/ssh.go
+	_ "github.com/moby/buildkit/client/connhelper/ssh"
 	"github.com/moby/buildkit/cmd/buildctl/build"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
@@ -51,7 +58,25 @@ func Build(ctx context.Context, opts *BOpts) error {
 		clientOpts = append(clientOpts, client.WithGRPCDialOption(opt))
 	}
 
-	buildkit, err := client.New(ctx, "", clientOpts...)
+	// BUILDKIT_HOST points the client at a daemon of the operator's
+	// choosing, the same variable buildctl binds to its addr flag; an
+	// empty value takes the library's own default path, the daemon
+	// launched beside this shim. The TLS conditions mirror buildctl's
+	// ResolveClient: credentials attach when either half of the pair is
+	// named, so a half-configured pair fails loudly instead of being
+	// ignored, and server verification attaches on a CA alone. The
+	// variable names are this shim's, spelled after buildctl's flags,
+	// which bind no environment variables of their own.
+	// https://github.com/moby/buildkit/blob/v0.29.0/cmd/buildctl/common/common.go
+	address := os.Getenv("BUILDKIT_HOST")
+	if cert, key := os.Getenv("BUILDKIT_TLS_CERT"), os.Getenv("BUILDKIT_TLS_KEY"); cert != "" || key != "" {
+		clientOpts = append(clientOpts, client.WithCredentials(cert, key))
+	}
+	if ca := os.Getenv("BUILDKIT_TLS_CACERT"); ca != "" {
+		clientOpts = append(clientOpts, client.WithServerConfig(os.Getenv("BUILDKIT_TLS_SERVERNAME"), ca))
+	}
+
+	buildkit, err := client.New(ctx, address, clientOpts...)
 	if err != nil {
 		logrus.Debugf("failed to connect to buildkit")
 		return err
