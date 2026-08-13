@@ -50,7 +50,7 @@ func NewTarReceiver(cacheBase string, demux *stream.Demultiplexer) *Receiver {
 	return &Receiver{demux: demux, cacheBase: cacheBase}
 }
 
-func (r *Receiver) Receive(ctx context.Context, dockerfile []byte, dockerignore []byte, fn fs.WalkDirFunc) (string, error) {
+func (r *Receiver) Receive(ctx context.Context, dockerfile []byte, dockerignore []byte, stageBuildDefinition bool, fn fs.WalkDirFunc) (string, error) {
 	errCh := make(chan error, 1)
 	hashCh := make(chan string, 1)
 	dataCh := make(chan []byte)
@@ -95,7 +95,7 @@ func (r *Receiver) Receive(ctx context.Context, dockerfile []byte, dockerignore 
 		_ = os.Remove(tarFile)
 	}
 
-	if len(dockerignore) > 0 {
+	if stageBuildDefinition && len(dockerfile) > 0 {
 		if err := stageDockerfiles(ctx, cacheDir, dockerfile, dockerignore); err != nil {
 			return "", err
 		}

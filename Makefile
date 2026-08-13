@@ -106,12 +106,14 @@ check-licenses:
 	@./scripts/ensure-hawkeye-exists.sh
 	@.local/bin/hawkeye check --fail-if-unknown
 
-.PHONY: image
+.PHONY: image docker-image
 image: build-linux
 	container build -t $(BINARY_NAME):$(GIT_TAG) .
 
+docker-image: image
+
 .PHONY: release
-release: fmt vet lint test build-linux docker-image
+release: fmt vet lint test image
 
 .PHONY: clean
 clean:
