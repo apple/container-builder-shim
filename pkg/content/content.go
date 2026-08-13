@@ -81,11 +81,7 @@ func (r *ContentStoreProxy) String() string {
 	return "content-store"
 }
 
-// Writer methods NOT required for building images
-func (r *ContentStoreProxy) Writer(ctx context.Context, opts ...contentx.WriterOpt) (contentx.Writer, error) {
-	panic("unimplemented")
-}
-
+// Ingest-status methods not required for building or exporting images
 func (r *ContentStoreProxy) Status(ctx context.Context, ref string) (contentx.Status, error) {
 	panic("unimplemented")
 }
