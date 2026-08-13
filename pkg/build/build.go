@@ -64,30 +64,20 @@ func Build(ctx context.Context, opts *BOpts) error {
 	}
 
 	if len(exports) == 0 {
+		// The default export goes straight into the caller's content store:
+		// the exporter copies the image's blob chain through the store the
+		// session already serves, the proxy skips every blob the caller
+		// holds, and no tarball is ever assembled. The root descriptor is
+		// left on the shared export path for the caller to register, since
+		// with a store output BuildKit maintains no index on its behalf.
 		exports = append(exports, client.ExportEntry{
-			Type:  "oci",
-			Attrs: map[string]string{},
+			Type:        "oci",
+			Attrs:       map[string]string{"tar": "false"},
+			OutputStore: opts.ContentStore,
 		})
 	}
 
 	outputPath := filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
-	f, err := os.CreateTemp("", "")
-	if err != nil {
-		return err
-	}
-
-	// IMPORTANT:
-	// gRPC's buffer pool allocates new buffers indefinitely when writing over any network medium.
-	//
-	// This issue is specifically observed when writing over network or virtiofs,
-	// potentially due to underlying OS/kernel behaviors affecting heap ref-counting.
-	// Direct disk writes do NOT trigger excessive bufPool allocations, likely due to
-	// immediate heap release. As a workaround, we write grpc buffers directly to disk
-	// first, then perform a separate io.Copy from disk to virtiofs to avoid the issue.
-	wf := &wrappedWriteCloser{
-		f:    f,
-		dest: outputPath,
-	}
 
 	var exportsWithOutput []client.ExportEntry
 	for _, export := range exports {
@@ -95,17 +85,36 @@ func Build(ctx context.Context, opts *BOpts) error {
 			export.Attrs = map[string]string{}
 		}
 
-		switch export.Type {
-		case client.ExporterLocal:
+		switch {
+		case export.Type == client.ExporterLocal:
 			localDest := filepath.Join(GlobalExportPath, opts.BuildID, "local")
 			os.MkdirAll(localDest, 0o755)
 			if export.OutputDir == "" {
 				export.OutputDir = localDest
 			}
 			export.Attrs["dest"] = localDest
+		case export.OutputStore != nil:
+			// The store export writes its blobs through the session's content
+			// store; a tar writer alongside it would keep the client from
+			// registering that store at all, so the entry carries none.
 		default: // oci, tar
+			// IMPORTANT:
+			// gRPC's buffer pool allocates new buffers indefinitely when writing over any network medium.
+			//
+			// This issue is specifically observed when writing over network or virtiofs,
+			// potentially due to underlying OS/kernel behaviors affecting heap ref-counting.
+			// Direct disk writes do NOT trigger excessive bufPool allocations, likely due to
+			// immediate heap release. As a workaround, we write grpc buffers directly to disk
+			// first, then perform a separate io.Copy from disk to virtiofs to avoid the issue.
+			//
+			// The file is made when the exporter asks for the writer, because
+			// closing that writer is what takes the file away again.
 			export.Output = func(map[string]string) (io.WriteCloser, error) {
-				return wf, nil
+				f, err := os.CreateTemp("", "")
+				if err != nil {
+					return nil, err
+				}
+				return &wrappedWriteCloser{f: f, dest: outputPath}, nil
 			}
 			export.Attrs["output"] = filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
 		}
@@ -181,9 +190,24 @@ func Build(ctx context.Context, opts *BOpts) error {
 		solveOpt.Session = append(solveOpt.Session, sshProvider)
 	}
 
-	_, err = buildkit.Build(opts.Context(ctx), solveOpt, "", frontend, opts.ProgressWriter.Status())
+	resp, err := buildkit.Build(opts.Context(ctx), solveOpt, "", frontend, opts.ProgressWriter.Status())
 	<-opts.ProgressWriter.Done()
-	return err
+	if err != nil {
+		return err
+	}
+
+	// The built image's root descriptor, for the caller to register the
+	// image under its tags against the store the blobs landed in.
+	if dgst, ok := resp.ExporterResponse["containerimage.digest"]; ok && dgst != "" {
+		digestPath := filepath.Join(GlobalExportPath, opts.BuildID, "digest")
+		if err := os.MkdirAll(filepath.Dir(digestPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(digestPath, []byte(dgst), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type wrappedWriteCloser struct {
