@@ -62,11 +62,29 @@ func (r *Receiver) Receive(ctx context.Context, dockerfile []byte, dockerignore 
 	}
 
 	cacheDir := filepath.Join(r.cacheBase, checksum)
-	tarFile := cacheDir + ".tar"
 
 	cached, err := checkCache(cacheDir, r.cacheBase)
 	if err != nil {
 		return "", err
+	}
+
+	// The cache is named for what it holds, so builds carrying the same
+	// context meet on one name, and builds carrying no context at all meet on
+	// the name of nothing. Each receive therefore takes the stream into a file
+	// of its own and unpacks it into a directory of its own, and the finished
+	// tree is moved under the shared name at the end. Sharing the paths had
+	// each of them writing and deleting what another was reading.
+	tarFile := ""
+	if !cached {
+		f, err := os.CreateTemp(r.cacheBase, checksum+".*.tar")
+		if err != nil {
+			return "", err
+		}
+		tarFile = f.Name()
+		if err := f.Close(); err != nil {
+			return "", err
+		}
+		defer os.Remove(tarFile)
 	}
 
 	header, err := readTarHeader(ctx, errCh, dataCh)
@@ -82,17 +100,28 @@ func (r *Receiver) Receive(ctx context.Context, dockerfile []byte, dockerignore 
 
 	full, err := readTarBody(ctx, errCh, dataCh, tarFile, cached)
 	if err != nil {
-		if !cached {
-			_ = os.Remove(tarFile)
-		}
 		return "", err
 	}
 
 	if !cached && full {
-		if err := unpackTar(ctx, tarFile, cacheDir); err != nil {
+		stage, err := os.MkdirTemp(r.cacheBase, checksum+".*")
+		if err != nil {
 			return "", err
 		}
-		_ = os.Remove(tarFile)
+		if err := unpackTar(ctx, tarFile, stage); err != nil {
+			_ = os.RemoveAll(stage)
+			return "", err
+		}
+		// Whichever receive finishes first gives the tree its name. A rename
+		// onto a directory that is already there fails, and what is already
+		// there is the same content under the same name, so it stands and this
+		// copy is given up.
+		if err := os.Rename(stage, cacheDir); err != nil {
+			_ = os.RemoveAll(stage)
+			if fi, statErr := os.Stat(cacheDir); statErr != nil || !fi.IsDir() {
+				return "", err
+			}
+		}
 	}
 
 	if len(dockerignore) > 0 {

@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -217,5 +218,52 @@ func TestReceiver_Receive_ServerError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "<err>") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Builds carrying the same context arrive at the same cache entry, and builds
+// carrying no context at all arrive at the entry named for nothing, so this is
+// what a machine running several builds does routinely rather than a corner of
+// the behaviour.
+func TestReceiver_Receive_ConcurrentSameContent(t *testing.T) {
+	archive, err := makeTar()
+	if err != nil {
+		t.Fatalf("makeTar: %v", err)
+	}
+	hashBytes := sha256.Sum256(archive)
+	hash := hex.EncodeToString(hashBytes[:])
+	header := archive[:512]
+	body := archive[512:]
+
+	cacheBase := t.TempDir()
+
+	const receivers = 8
+	errs := make([]error, receivers)
+	var wg sync.WaitGroup
+	for i := range receivers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			demux := newDemux(ctx)
+			_ = demux.Accept(btPacket([]byte{}, false, map[string]string{"hash": hash}))
+			_ = demux.Accept(btPacket(header, false, nil))
+			_ = demux.Accept(btPacket(body, true, nil))
+			r := NewTarReceiver(cacheBase, demux)
+			_, errs[i] = r.Receive(ctx, []byte{}, []byte{}, func(string, fs.DirEntry, error) error { return nil })
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("receiver %d: %v", i, err)
+		}
+	}
+
+	cacheDir := filepath.Join(cacheBase, hash)
+	if fi, err := os.Stat(filepath.Join(cacheDir, "file1")); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("extracted file missing or not regular: %v", err)
 	}
 }
