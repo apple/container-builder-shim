@@ -28,4 +28,5 @@ var (
 	ErrNoBuildDirectives         = fmt.Errorf("no build directives")
 	ErrInvalidImageContextFormat = fmt.Errorf("image resolver: image name format is invalid")
 	ErrInvalidProgress           = fmt.Errorf("build arg progress value is invalid")
+	ErrUnsupportedSSH            = fmt.Errorf("build arg ssh value is not supported")
 )
