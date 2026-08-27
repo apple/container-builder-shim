@@ -46,7 +46,12 @@ func (m *mockConn) RecvMsg(msg any) error {
 	}
 	switch t := msg.(type) {
 	case *types.Packet:
-		*t = *p
+		// Field-wise, because a Packet carries its protobuf message state
+		// and copying that by value copies the lock inside it.
+		t.Type = p.Type
+		t.Stat = p.Stat
+		t.ID = p.ID
+		t.Data = p.Data
 	default:
 		return errors.New("unexpected type to RecvMsg")
 	}
@@ -61,8 +66,7 @@ func (m *mockConn) SendMsg(msg any) error {
 	if !ok {
 		return errors.New("SendMsg expects *types.Packet")
 	}
-	cp := *p
-	m.sent = append(m.sent, &cp)
+	m.sent = append(m.sent, &types.Packet{Type: p.Type, Stat: p.Stat, ID: p.ID, Data: p.Data})
 	return nil
 }
 
