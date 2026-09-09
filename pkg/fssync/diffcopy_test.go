@@ -17,13 +17,21 @@
 package fssync
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
+	"slices"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/tonistiigi/fsutil"
 	"github.com/tonistiigi/fsutil/types"
+	"google.golang.org/grpc/metadata"
 )
 
 type mockConn struct {
@@ -139,6 +147,97 @@ func TestSenderQueueInvalidIDReturnsError(t *testing.T) {
 
 	if err := s.queue(99); err == nil {
 		t.Fatalf("queue(99) returned nil error, want non-nil")
+	}
+}
+
+// makeDockerignoreReproTar builds the build-context tree from
+// https://github.com/apple/container/issues/1800:
+//
+//	foo/.gitkeep
+//	foo/bar/.gitkeep
+func makeDockerignoreReproTar() (checksum string, full []byte) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	for _, dir := range []string{"foo", "foo/bar"} {
+		_ = tw.WriteHeader(&tar.Header{
+			Name:     dir,
+			Typeflag: tar.TypeDir,
+			Mode:     0o755,
+			ModTime:  time.Time{},
+		})
+	}
+	for _, file := range []string{"foo/.gitkeep", "foo/bar/.gitkeep"} {
+		_ = tw.WriteHeader(&tar.Header{
+			Name:     file,
+			Typeflag: tar.TypeReg,
+			Mode:     0o644,
+			Size:     0,
+			ModTime:  time.Time{},
+		})
+	}
+	_ = tw.Close()
+
+	full = buf.Bytes()
+	sum := sha256.Sum256(full)
+	return hex.EncodeToString(sum[:]), full
+}
+
+// Regression test for https://github.com/apple/container/issues/1800.
+//
+// A .dockerignore that excludes a directory's contents but re-includes some
+// of its descendants with negation patterns (the default Rails template does
+// this) must still emit the excluded ancestor directories before the
+// re-included files. BuildKit's receiver validates parent ordering and
+// rejects the stream with "changes out of order" otherwise.
+func TestDiffCopyEmitsExcludedParentDirsOfReincludedFiles(t *testing.T) {
+	prevTarFactory := testTarFactory
+	testTarFactory = makeDockerignoreReproTar
+	defer func() { testTarFactory = prevTarFactory }()
+
+	// The patterns from the issue's .dockerignore as BuildKit sends them
+	// over the DiffCopy request metadata (the dockerignore parser strips
+	// leading slashes):
+	//
+	//	/foo/*
+	//	!/foo/.gitkeep
+	//	/foo/bar/*
+	//	!/foo/bar/.gitkeep
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.MD{
+		"exclude-patterns": []string{"foo/*", "!foo/.gitkeep", "foo/bar/*", "!foo/bar/.gitkeep"},
+	})
+
+	fs, err := filteredFS(ctx, NewFS(ctx, &FSSyncProxy{}, "/", t.TempDir()))
+	if err != nil {
+		t.Fatalf("filteredFS returned err=%v", err)
+	}
+
+	ms := newMockStream()
+	s := &sender{
+		conn:         &syncStream{Stream: ms},
+		fs:           fs,
+		files:        make(map[uint32]string),
+		sendpipeline: make(chan *sendHandle, 128),
+	}
+	if err := s.walk(ctx); err != nil {
+		t.Fatalf("walk returned err=%v", err)
+	}
+
+	var paths []string
+	validator := &fsutil.Validator{}
+	for _, p := range ms.sent {
+		if p.Type != types.PACKET_STAT || p.Stat == nil {
+			continue
+		}
+		paths = append(paths, p.Stat.Path)
+		if err := validator.HandleChange(fsutil.ChangeKindAdd, p.Stat.Path, &fsutil.StatInfo{Stat: p.Stat}, nil); err != nil {
+			t.Fatalf("BuildKit's receiver would reject the stream: %v (paths so far: %v)", err, paths)
+		}
+	}
+
+	want := []string{"foo", "foo/.gitkeep", "foo/bar", "foo/bar/.gitkeep"}
+	if !slices.Equal(paths, want) {
+		t.Fatalf("sent paths = %v, want %v", paths, want)
 	}
 }
 

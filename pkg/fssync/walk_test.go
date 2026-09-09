@@ -71,10 +71,15 @@ func makeNestedTarHeaderAndBody() (checksum string, full []byte) {
 	return hex.EncodeToString(header[:]), full
 }
 
+// testTarFactory produces the tar content served by the fake Send below.
+// Tests that need a different build-context tree may override it and restore
+// the previous value when done.
+var testTarFactory = makeNestedTarHeaderAndBody
+
 func (p *FSSyncProxy) Send(s *api.ServerStream) error {
 	id := s.BuildId
 	d := demuxes[id]
-	checksum, full := makeNestedTarHeaderAndBody()
+	checksum, full := testTarFactory()
 	go func() {
 		_ = d.Accept(&api.ClientStream{
 			BuildId: id,

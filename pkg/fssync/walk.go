@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/moby/patternmatcher"
 
 	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/apple/container-builder-shim/pkg/fileutils"
@@ -37,8 +36,8 @@ Walk requests build-context files from the macOS host and presents them to Build
 The host is asked for a tar archive containing the paths identified by
 followpaths (glob patterns BuildKit sends in the request metadata). The shim
 unpacks the tar to a content-addressed local cache and then walks the unpacked
-tree, filtering each entry through the exclude-patterns (from .dockerignore)
-before passing it to fn.
+tree, passing every entry to fn. Exclude-pattern filtering (from .dockerignore)
+is applied by the fsutil filter that DiffCopy wraps around this FS.
 
 Only TAR mode is supported. The JSON mode wire format is defined in
 RawFileInfo below but is not exercised by the current shim.
@@ -94,10 +93,6 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	if err != nil {
 		return err
 	}
-	excludeMatcher, err := patternmatcher.New(strings.Split(walkMeta.ExcludedPatterns, ","))
-	if err != nil {
-		return err
-	}
 
 	id := uuid.NewString()
 	demux := stream.NewDemuxWithContext(cancellableCtx, id, stream.FilterByBuildID(id), func(any) {})
@@ -134,15 +129,7 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	switch walkMeta.Mode {
 	case ModeTAR:
 		receiver := fileutils.NewTarReceiver(f.fsPath, demux)
-		checksum, err := receiver.Receive(ctx, f.proxy.dockerfile, f.proxy.dockerignore,
-			func(path string, d fs.DirEntry, err error) error {
-				excluded, err := excludeMatcher.MatchesOrParentMatches(path)
-				if excluded {
-					return nil
-				}
-
-				return fn(path, d, err)
-			})
+		checksum, err := receiver.Receive(ctx, f.proxy.dockerfile, f.proxy.dockerignore, fn)
 		if err != nil {
 			return err
 		}
@@ -169,7 +156,7 @@ type RawFileInfo struct {
 
 type WalkMetadata struct {
 	IncludePatterns  string
-	ExcludedPatterns string
+	ExcludedPatterns []string
 	FollowPaths      string
 	DirName          string
 	Mode             TransferMode
@@ -179,7 +166,7 @@ func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
 	md := &WalkMetadata{}
 	if m, ok := metadata.FromIncomingContext(ctx); ok {
 		md.IncludePatterns = strings.Join(m["include-patterns"], ",")
-		md.ExcludedPatterns = strings.Join(m["exclude-patterns"], ",")
+		md.ExcludedPatterns = m["exclude-patterns"]
 		md.FollowPaths = strings.Join(m["followpaths"], ",")
 		md.DirName = strings.Join(m["dir-name"], ",")
 		modeStr := strings.Join(m["mode"], ",")
