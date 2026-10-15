@@ -118,7 +118,15 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 		return nil, err
 	}
 
-	stages, _, err := instructions.Parse(dockerfile.AST, nil)
+	stages, metaArgs, err := instructions.Parse(dockerfile.AST, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	shlex := shell.NewLex(dockerfile.EscapeToken)
+	resolvedGlobalArgs := globalArgs(bopts.BuildPlatforms[0], platform, bopts.BuildArgs, bopts.Target)
+	// Merge pre-FROM ARG defaults so FROM references can expand correctly.
+	resolvedGlobalArgs, err = resolveMetaArgs(resolvedGlobalArgs, metaArgs, bopts.BuildArgs, shlex)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +216,6 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 			defer wg.Done()
 
 			shlex := shell.NewLex(dockerfile.EscapeToken)
-			resolvedGlobalArgs := globalArgs(bopts.BuildPlatforms[0], platform, bopts.BuildArgs, bopts.Target)
 			resolvedBaseStageName, err := shlex.ProcessWordWithMatches(stage.BaseName, resolvedGlobalArgs)
 			if err != nil {
 				errCh <- fmt.Errorf("invalid arg for stage[%s]: %v", stage.BaseName, err)
@@ -480,4 +487,36 @@ func globalArgs(buildPlatform, targetPlatform ocispecs.Platform, buildArgs map[s
 		args[k] = v
 	}
 	return utils.NewMapGetter(args)
+}
+
+// resolveMetaArgs applies Dockerfile ARG defaults in declaration order while preserving explicit build arg overrides.
+func resolveMetaArgs(args utils.MapGetter, metaArgs []instructions.ArgCommand, buildArgs map[string]string, shlex *shell.Lex) (utils.MapGetter, error) {
+	resolved := map[string]string{}
+	for _, k := range args.Keys() {
+		v, ok := args.Get(k)
+		if ok {
+			resolved[k] = v
+		}
+	}
+
+	for _, cmd := range metaArgs {
+		for _, arg := range cmd.Args {
+			// Explicit build args override Dockerfile defaults.
+			if v, ok := buildArgs[arg.Key]; ok {
+				resolved[arg.Key] = v
+				continue
+			}
+			if arg.Value == nil {
+				continue
+			}
+
+			expanded, err := shlex.ProcessWordWithMatches(*arg.Value, utils.NewMapGetter(resolved))
+			if err != nil {
+				return nil, err
+			}
+			resolved[arg.Key] = expanded.Result
+		}
+	}
+
+	return utils.NewMapGetter(resolved), nil
 }
