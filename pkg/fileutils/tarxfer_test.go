@@ -95,7 +95,7 @@ func TestReceiver_Receive_Success(t *testing.T) {
 		return nil
 	}
 
-	checksum, err := r.Receive(ctx, []byte{}, []byte{}, walkFn)
+	checksum, err := r.Receive(ctx, []byte{}, []byte{}, false, walkFn)
 	if err != nil {
 		t.Fatalf("Receive returned error: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestReceiver_Receive_OverflowsDemuxChannel(t *testing.T) {
 	}
 
 	start := time.Now()
-	checksum, err := r.Receive(ctx, []byte{}, []byte{}, walkFn)
+	checksum, err := r.Receive(ctx, []byte{}, []byte{}, false, walkFn)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("Receive failed after %v: %v", elapsed, err)
@@ -211,11 +211,63 @@ func TestReceiver_Receive_ServerError(t *testing.T) {
 	tmpDir := t.TempDir()
 	r := NewTarReceiver(tmpDir, demux)
 
-	_, err := r.Receive(ctx, []byte{}, []byte{}, func(string, fs.DirEntry, error) error { return nil })
+	_, err := r.Receive(ctx, []byte{}, []byte{}, false, func(string, fs.DirEntry, error) error { return nil })
 	if err == nil {
 		t.Fatalf("expected server error, got nil")
 	}
 	if !strings.Contains(err.Error(), "<err>") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReceiver_Receive_StagesDockerfile(t *testing.T) {
+	archive, err := makeTar()
+	if err != nil {
+		t.Fatalf("makeTar: %v", err)
+	}
+
+	hashBytes := sha256.Sum256(archive)
+	hash := hex.EncodeToString(hashBytes[:])
+	header := archive[:512]
+	body := archive[512:]
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	demux := newDemux(ctx)
+
+	_ = demux.Accept(btPacket([]byte{}, false, map[string]string{"hash": hash}))
+	_ = demux.Accept(btPacket(header, false, nil))
+	_ = demux.Accept(btPacket(body, true, nil))
+
+	tmpDir := t.TempDir()
+	r := NewTarReceiver(tmpDir, demux)
+
+	dockerfile := []byte("# syntax=ghcr.io/builderhub/yamlfile:latest\nFROM alpine\n")
+	var visited []string
+	walkFn := func(p string, _ fs.DirEntry, _ error) error {
+		visited = append(visited, p)
+		return nil
+	}
+
+	checksum, err := r.Receive(ctx, dockerfile, []byte{}, true, walkFn)
+	if err != nil {
+		t.Fatalf("Receive returned error: %v", err)
+	}
+
+	stagedPath := filepath.Join(DockerfileStaging, "Dockerfile")
+	found := false
+	for _, p := range visited {
+		if p == stagedPath {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("staged dockerfile not in walk output: %v", visited)
+	}
+
+	cacheDir := filepath.Join(tmpDir, checksum)
+	if fi, err := os.Stat(filepath.Join(cacheDir, stagedPath)); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("staged dockerfile missing on disk: %v", err)
 	}
 }

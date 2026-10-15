@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/tonistiigi/fsutil/types"
+	"google.golang.org/protobuf/proto"
 )
 
 type mockConn struct {
@@ -46,7 +47,8 @@ func (m *mockConn) RecvMsg(msg any) error {
 	}
 	switch t := msg.(type) {
 	case *types.Packet:
-		*t = *p
+		t.Reset()
+		proto.Merge(t, p)
 	default:
 		return errors.New("unexpected type to RecvMsg")
 	}
@@ -61,8 +63,11 @@ func (m *mockConn) SendMsg(msg any) error {
 	if !ok {
 		return errors.New("SendMsg expects *types.Packet")
 	}
-	cp := *p
-	m.sent = append(m.sent, &cp)
+	cloned, ok := proto.Clone(p).(*types.Packet)
+	if !ok {
+		return errors.New("SendMsg failed to clone *types.Packet")
+	}
+	m.sent = append(m.sent, cloned)
 	return nil
 }
 

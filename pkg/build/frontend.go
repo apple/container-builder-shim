@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,6 +39,7 @@ import (
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	"github.com/moby/buildkit/frontend/dockerui"
 	gateway "github.com/moby/buildkit/frontend/gateway/client"
+	gwpb "github.com/moby/buildkit/frontend/gateway/pb"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -50,6 +52,10 @@ func frontend(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
 	bopts, err := newBOptsFromContext(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	if !bopts.frontend.native() {
+		return forwardGateway(ctx, c, bopts.frontend)
 	}
 
 	res := gateway.NewResult()
@@ -76,6 +82,7 @@ func frontend(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
 			states, err := resolveStates(ctx, bopts, pl, clog)
 			if err != nil {
 				plErrCh <- err
+				return
 			}
 
 			ref, cfgJSON, err := solvePlatform(ctx, bopts, pl, c, states)
@@ -480,4 +487,45 @@ func globalArgs(buildPlatform, targetPlatform ocispecs.Platform, buildArgs map[s
 		args[k] = v
 	}
 	return utils.NewMapGetter(args)
+}
+
+func forwardGateway(ctx context.Context, c gateway.Client, settings frontendSettings) (*gateway.Result, error) {
+	base := c.BuildOpts().Opts
+	opts := maps.Clone(base)
+	if opts == nil {
+		opts = map[string]string{}
+	}
+	if settings.Cmdline != "" {
+		opts["cmdline"] = settings.Cmdline
+	}
+	if settings.Source != "" {
+		opts["source"] = settings.Source
+	}
+	for k, v := range settings.Opts {
+		opts[k] = v
+	}
+
+	gwcaps := c.BuildOpts().Caps
+	var frontendInputs map[string]*pb.Definition
+	if (&gwcaps).Supports(gwpb.CapFrontendInputs) == nil {
+		inputs, err := c.Inputs(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		frontendInputs = make(map[string]*pb.Definition)
+		for name, state := range inputs {
+			def, err := state.Marshal(ctx)
+			if err != nil {
+				return nil, err
+			}
+			frontendInputs[name] = def.ToPB()
+		}
+	}
+
+	return c.Solve(ctx, gateway.SolveRequest{
+		Frontend:       frontendGatewayV0,
+		FrontendOpt:    opts,
+		FrontendInputs: frontendInputs,
+	})
 }

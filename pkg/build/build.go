@@ -113,8 +113,13 @@ func Build(ctx context.Context, opts *BOpts) error {
 		if _, ok := export.Attrs["name"]; !ok {
 			export.Attrs["name"] = opts.Tag
 		}
-		if _, ok := export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"]; !ok {
-			export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"] = opts.Tag
+		// The apple containerization annotation is only injected for the
+		// native Dockerfile path, which produces a manifest list via frontend.go.
+		// External frontends control their own manifest metadata.
+		if opts.frontend.native() {
+			if _, ok := export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"]; !ok {
+				export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"] = opts.Tag
+			}
 		}
 		exportsWithOutput = append(exportsWithOutput, export)
 	}
@@ -143,7 +148,10 @@ func Build(ctx context.Context, opts *BOpts) error {
 		KeyContentStoreName: opts.ContentStore,
 	}
 
-	if len(opts.Dockerignore) > 0 {
+	solveOpt.FrontendAttrs["local.metadatatransfer"] = "false"
+	solveOpt.FrontendAttrs["local.differ"] = "none"
+
+	if len(opts.Dockerignore) > 0 || !opts.frontend.native() {
 		solveOpt.FrontendAttrs["filename"] = filepath.Join(DockerfileStaging, "Dockerfile")
 	}
 
@@ -171,7 +179,6 @@ func Build(ctx context.Context, opts *BOpts) error {
 	for k, v := range opts.Labels {
 		solveOpt.FrontendAttrs["label:"+k] = v
 	}
-	solveOpt.Frontend = "dockerfile.v1"
 
 	if len(opts.SSH) > 0 {
 		sshProvider, err := sshprovider.NewSSHAgentProvider(opts.SSH)
@@ -181,6 +188,7 @@ func Build(ctx context.Context, opts *BOpts) error {
 		solveOpt.Session = append(solveOpt.Session, sshProvider)
 	}
 
+	solveOpt.Frontend = "dockerfile.v1"
 	_, err = buildkit.Build(opts.Context(ctx), solveOpt, "", frontend, opts.ProgressWriter.Status())
 	<-opts.ProgressWriter.Done()
 	return err

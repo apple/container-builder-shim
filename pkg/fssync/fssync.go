@@ -56,12 +56,13 @@ type FSSyncProxy struct {
 
 	addedGlobs []string
 
-	dockerfile   []byte
-	dockerignore []byte
+	dockerfile           []byte
+	dockerignore         []byte
+	stageBuildDefinition bool
 }
 
 func NewFSSyncProxy(contextDir string, basePath string, addedGlobs []string,
-	dockerfile []byte, dockerignore []byte) (*FSSyncProxy, error) {
+	dockerfile []byte, dockerignore []byte, stageBuildDefinition bool) (*FSSyncProxy, error) {
 
 	f := new(FSSyncProxy)
 	f.contextDir = contextDir
@@ -70,6 +71,7 @@ func NewFSSyncProxy(contextDir string, basePath string, addedGlobs []string,
 
 	f.dockerfile = dockerfile
 	f.dockerignore = dockerignore
+	f.stageBuildDefinition = stageBuildDefinition
 	return f, nil
 }
 
