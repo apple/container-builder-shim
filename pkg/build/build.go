@@ -171,6 +171,19 @@ func Build(ctx context.Context, opts *BOpts) error {
 	for k, v := range opts.Labels {
 		solveOpt.FrontendAttrs["label:"+k] = v
 	}
+	for name, ref := range opts.BuildContexts {
+		switch strings.SplitN(ref, ":", 2)[0] {
+		case "docker-image", "git", "http", "https":
+			solveOpt.FrontendAttrs["context:"+name] = ref
+		case "oci-layout":
+			// oci-layout requires custom handling as it needs to load the layout data from the client
+			// not setting solveOpt.FrontendAttrs["context:"+name] here for the frontend can handle it because namedcontext will resolve
+			solveOpt.OCIStores[name] = opts.ContentStore
+		default: // bare path → local context
+			solveOpt.FrontendAttrs["context:"+name] = "local:" + name
+		}
+	}
+
 	solveOpt.Frontend = "dockerfile.v1"
 
 	if len(opts.SSH) > 0 {
