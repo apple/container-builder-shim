@@ -72,6 +72,21 @@ tidy:
 deps: tidy
 	$(GO) mod download
 
+# Fails if go.mod, go.sum or vendor/ differ from what `go mod tidy && go mod vendor`
+# produces. Run it on a clean tree: it regenerates those files in place and marks new
+# ones with `git add --intent-to-add` so that files missing from the tree are detected.
+.PHONY: check-deps
+check-deps: ## Verify go.mod, go.sum and vendor/ are up to date
+	$(GO) mod tidy
+	$(GO) mod vendor
+	$(GO) mod verify
+	git add --intent-to-add --all -- go.mod go.sum vendor
+	@if ! git diff --quiet -- go.mod go.sum vendor; then \
+		echo "Please run 'go mod tidy && go mod vendor'. Out of date dependency files:" >&2; \
+		git --no-pager diff --name-only -- go.mod go.sum vendor >&2; \
+		exit 1; \
+	fi
+
 TEST_FLAGS ?= -v
 
 .PHONY: test
