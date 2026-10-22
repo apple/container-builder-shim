@@ -234,3 +234,26 @@ func TestWalk_TarModeSuccess(t *testing.T) {
 		t.Errorf("walk callback not invoked")
 	}
 }
+
+// BuildKit sends no followpaths when a step needs the whole context (for
+// example RUN --mount=type=tmpfs or COPY . .). The host reads an empty list as
+// "nothing", so the shim must ask for everything explicitly.
+func TestEffectiveFollowPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty requests the whole context", "", "."},
+		{"single path is kept", "Gemfile", "Gemfile"},
+		{"list is kept as is", "docker/builder-image/Dockerfile,Gemfile,.node-version", "docker/builder-image/Dockerfile,Gemfile,.node-version"},
+		{"explicit whole context is kept", ".", "."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := effectiveFollowPaths(tt.in); got != tt.want {
+				t.Errorf("effectiveFollowPaths(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

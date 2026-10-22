@@ -45,8 +45,9 @@ before passing it to fn.
 Only TAR mode is supported. The JSON mode wire format is defined in
 RawFileInfo below but is not exercised by the current shim.
 
-If BuildKit does not supply followpaths, the shim falls back to addedGlobs —
-source paths pre-computed from the Dockerfile AST (see pkg/build/buildopts.go).
+BuildKit omits followpaths when a build step needs the whole context (for
+example COPY . . or a RUN --mount=type=tmpfs). An empty value therefore means
+"everything", and the shim requests "." from the host in that case.
 
 Request Format:
 
@@ -105,10 +106,7 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	demux := stream.NewDemuxWithContext(cancellableCtx, id, stream.FilterByBuildID(id), func(any) {})
 	f.proxy.RegisterDemux(id, demux)
 
-	followPaths := walkMeta.FollowPaths
-	if followPaths == "" {
-		followPaths = strings.Join(f.proxy.addedGlobs, ",")
-	}
+	followPaths := effectiveFollowPaths(walkMeta.FollowPaths)
 
 	packet := &api.BuildTransfer{
 		Id:        id,
@@ -155,6 +153,18 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	default:
 		return fmt.Errorf("unsupported walk mode: %q", walkMeta.Mode)
 	}
+}
+
+// effectiveFollowPaths returns the followpaths value to send to the host.
+//
+// BuildKit sends no followpaths when a build step needs the whole context, so
+// an empty value means "everything". The host reads an empty list as "nothing",
+// so request the whole context explicitly.
+func effectiveFollowPaths(fromBuildKit string) string {
+	if fromBuildKit == "" {
+		return "."
+	}
+	return fromBuildKit
 }
 
 // RawFileInfo is the wire‑format for Walk (json mode).
