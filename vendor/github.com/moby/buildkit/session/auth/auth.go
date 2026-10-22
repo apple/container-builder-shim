@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"sync"
+	"time"
 
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/util/grpcerrors"
@@ -13,8 +14,25 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+// SessionAuthTimeout is the timeout for daemon-side session auth round-trips
+// (credentials, token fetch, token authority) with the buildx client session.
+// It is configurable via buildkitd.toml `[system].sessionAuthTimeout`; if
+// unset, the default of 60 seconds is used. A value of zero or less disables
+// the deadline entirely.
+var SessionAuthTimeout = 60 * time.Second
+
 var salt []byte
 var saltOnce sync.Once
+
+// withTimeout bounds ctx by SessionAuthTimeout. If the configured timeout
+// is non-positive, no deadline is applied and ctx is returned unchanged;
+// a zero-duration context would expire immediately.
+func withTimeout(ctx context.Context, cause error) (context.Context, context.CancelFunc) {
+	if SessionAuthTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeoutCause(ctx, SessionAuthTimeout, cause)
+}
 
 // getSalt returns unique component per daemon restart to avoid persistent keys
 func getSalt() []byte {
@@ -25,10 +43,12 @@ func getSalt() []byte {
 	return salt
 }
 
-func CredentialsFunc(sm *session.Manager, g session.Group) func(string) (session, username, secret string, err error) {
+func CredentialsFunc(ctx context.Context, sm *session.Manager, g session.Group) func(string) (session, username, secret string, err error) {
 	return func(host string) (string, string, string, error) {
+		ctx, cancel := withTimeout(ctx, errors.Wrap(context.DeadlineExceeded, "resolving credentials from session"))
+		defer cancel()
 		var sessionID, user, secret string
-		err := sm.Any(context.TODO(), g, func(ctx context.Context, id string, c session.Caller) error {
+		err := sm.Any(ctx, g, func(ctx context.Context, id string, c session.Caller) error {
 			client := NewAuthClient(c.Conn())
 
 			resp, err := client.Credentials(ctx, &CredentialsRequest{
@@ -53,6 +73,8 @@ func CredentialsFunc(sm *session.Manager, g session.Group) func(string) (session
 }
 
 func FetchToken(ctx context.Context, req *FetchTokenRequest, sm *session.Manager, g session.Group) (resp *FetchTokenResponse, err error) {
+	ctx, cancel := withTimeout(ctx, errors.Wrap(context.DeadlineExceeded, "fetching auth token from session"))
+	defer cancel()
 	err = sm.Any(ctx, g, func(ctx context.Context, id string, c session.Caller) error {
 		client := NewAuthClient(c.Conn())
 
@@ -69,6 +91,8 @@ func FetchToken(ctx context.Context, req *FetchTokenRequest, sm *session.Manager
 }
 
 func VerifyTokenAuthority(ctx context.Context, host string, pubKey *[32]byte, sm *session.Manager, g session.Group) (sessionID string, ok bool, err error) {
+	ctx, cancel := withTimeout(ctx, errors.Wrap(context.DeadlineExceeded, "verifying token authority from session"))
+	defer cancel()
 	var verified bool
 	err = sm.Any(ctx, g, func(ctx context.Context, id string, c session.Caller) error {
 		client := NewAuthClient(c.Conn())
@@ -101,6 +125,8 @@ func VerifyTokenAuthority(ctx context.Context, host string, pubKey *[32]byte, sm
 }
 
 func GetTokenAuthority(ctx context.Context, host string, sm *session.Manager, g session.Group) (sessionID string, pubKey *[32]byte, err error) {
+	ctx, cancel := withTimeout(ctx, errors.Wrap(context.DeadlineExceeded, "getting token authority from session"))
+	defer cancel()
 	err = sm.Any(ctx, g, func(ctx context.Context, id string, c session.Caller) error {
 		client := NewAuthClient(c.Conn())
 

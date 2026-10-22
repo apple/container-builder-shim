@@ -23,11 +23,11 @@ var contextKey = contextKeyT("buildkit/util/resolver/limited")
 // DefaultMaxConcurrency is the default number of concurrent connections per registry.
 var DefaultMaxConcurrency int64 = 4
 
-var Default = New(int(DefaultMaxConcurrency))
+var Default = New(DefaultMaxConcurrency)
 
 type Group struct {
 	mu   sync.Mutex
-	size int
+	size int64
 	sem  map[string][2]*semaphore.Weighted
 }
 
@@ -46,16 +46,7 @@ func (r *req) acquire(ctx context.Context, desc ocispecs.Descriptor) (context.Co
 	// json request get one additional connection
 	highPriority := strings.HasSuffix(desc.MediaType, "+json")
 
-	r.g.mu.Lock()
-	s, ok := r.g.sem[r.ref]
-	if !ok {
-		s = [2]*semaphore.Weighted{
-			semaphore.NewWeighted(int64(r.g.size)),
-			semaphore.NewWeighted(int64(r.g.size + 1)),
-		}
-		r.g.sem[r.ref] = s
-	}
-	r.g.mu.Unlock()
+	s := r.g.getOrInit(r.ref)
 	if !highPriority {
 		if err := s[0].Acquire(ctx, 1); err != nil {
 			return ctx, nil, err
@@ -75,15 +66,40 @@ func (r *req) acquire(ctx context.Context, desc ocispecs.Descriptor) (context.Co
 	}, nil
 }
 
-func New(size int) *Group {
+func New(size int64) *Group {
 	return &Group{
 		size: size,
 		sem:  make(map[string][2]*semaphore.Weighted),
 	}
 }
 
+// Size returns the maximum concurrency for the group.
+func (g *Group) Size() int64 {
+	return g.size
+}
+
 func (g *Group) req(ref string) *req {
 	return &req{g: g, ref: domain(ref)}
+}
+
+func (g *Group) getOrInit(domain string) [2]*semaphore.Weighted {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	s, ok := g.sem[domain]
+	if !ok {
+		s = [2]*semaphore.Weighted{
+			semaphore.NewWeighted(g.size),
+			semaphore.NewWeighted(g.size + 1),
+		}
+		g.sem[domain] = s
+	}
+	return s
+}
+
+// SetMaxConcurrency sets the default maximum concurrency for the default group.
+func SetMaxConcurrency(size int64) {
+	Default = New(size)
 }
 
 func (g *Group) WrapFetcher(f remotes.Fetcher, ref string) remotes.Fetcher {
@@ -91,7 +107,15 @@ func (g *Group) WrapFetcher(f remotes.Fetcher, ref string) remotes.Fetcher {
 }
 
 func (g *Group) PushHandler(pusher remotes.Pusher, provider content.Provider, ref string) images.HandlerFunc {
-	ph := remotes.PushHandler(pusher, provider)
+	return g.wrapHandler(remotes.PushHandler(pusher, provider), ref)
+}
+
+func (g *Group) FetchHandler(ingester content.Ingester, fetcher remotes.Fetcher, ref string) images.HandlerFunc {
+	// Acquire before opening the writer, which may start a registry upload.
+	return g.wrapHandler(remotes.FetchHandler(ingester, fetcher), ref)
+}
+
+func (g *Group) wrapHandler(h images.HandlerFunc, ref string) images.HandlerFunc {
 	req := g.req(ref)
 	return func(ctx context.Context, desc ocispecs.Descriptor) ([]ocispecs.Descriptor, error) {
 		ctx, release, err := req.acquire(ctx, desc)
@@ -99,7 +123,7 @@ func (g *Group) PushHandler(pusher remotes.Pusher, provider content.Provider, re
 			return nil, err
 		}
 		defer release()
-		return ph(ctx, desc)
+		return h(ctx, desc)
 	}
 }
 
@@ -161,7 +185,7 @@ func (r *readCloser) close() {
 }
 
 func FetchHandler(ingester content.Ingester, fetcher remotes.Fetcher, ref string) images.HandlerFunc {
-	return remotes.FetchHandler(ingester, Default.WrapFetcher(fetcher, ref))
+	return Default.FetchHandler(ingester, fetcher, ref)
 }
 
 func PushHandler(pusher remotes.Pusher, provider content.Provider, ref string) images.HandlerFunc {

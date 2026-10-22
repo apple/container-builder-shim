@@ -208,6 +208,7 @@ type dispatchContext struct {
 	opt               ConvertOpt
 	platformOpt       *platformOpt
 	globalArgs        *llb.EnvList
+	epoch             *time.Time
 	shlex             *shell.Lex
 	outline           outlineCapture
 	lint              *linter.Linter
@@ -300,9 +301,13 @@ func toDispatchState(ctx context.Context, dt []byte, opt ConvertOpt) (*dispatchS
 		return nil, err
 	}
 
-	opt.Epoch, err = resolveSourceDateEpoch(opt.Epoch, globalArgs)
-	if err != nil {
-		return nil, err
+	var resolvedEpoch *time.Time
+	if sourceDateEpoch, ok := getBuildArgValue(opt.BuildArgs, globalArgs, "SOURCE_DATE_EPOCH"); ok {
+		resolvedEpoch, err = resolveSourceDateEpochValue(ctx, sourceDateEpoch, opt, stages, globalArgs, shlex)
+		if err != nil {
+			return nil, err
+		}
+		globalArgs = setBuildArgValue(opt.BuildArgs, globalArgs, "SOURCE_DATE_EPOCH", formatSourceDateEpochValue(resolvedEpoch))
 	}
 
 	metaResolver := opt.MetaResolver
@@ -314,6 +319,7 @@ func toDispatchState(ctx context.Context, dt []byte, opt ConvertOpt) (*dispatchS
 		opt:               opt,
 		platformOpt:       platformOpt,
 		globalArgs:        globalArgs,
+		epoch:             resolvedEpoch,
 		shlex:             shlex,
 		outline:           outline,
 		lint:              lint,
@@ -353,25 +359,39 @@ func toDispatchState(ctx context.Context, dt []byte, opt ConvertOpt) (*dispatchS
 	return target, nil
 }
 
-func resolveSourceDateEpoch(explicit *time.Time, globalArgs *llb.EnvList) (*time.Time, error) {
-	if explicit != nil {
-		return explicit, nil
+func getBuildArgValue(buildArgs map[string]string, globalArgs *llb.EnvList, key string) (string, bool) {
+	if v, ok := buildArgs[key]; ok {
+		return v, true
 	}
 	if globalArgs == nil {
-		return nil, nil
+		return "", false
 	}
-
-	v, ok := globalArgs.Get("SOURCE_DATE_EPOCH")
+	v, ok := globalArgs.Get(key)
 	if !ok || v == "" {
-		return nil, nil
+		return "", false
 	}
+	return v, true
+}
 
-	sde, err := strconv.ParseInt(v, 10, 64)
-	if err != nil {
-		return nil, errors.Wrapf(err, "invalid SOURCE_DATE_EPOCH: %s", v)
+func setBuildArgValue(buildArgs map[string]string, globalArgs *llb.EnvList, key, value string) *llb.EnvList {
+	if _, ok := buildArgs[key]; ok {
+		if value == "" {
+			delete(buildArgs, key)
+		} else {
+			buildArgs[key] = value
+		}
 	}
-	tm := time.Unix(sde, 0).UTC()
-	return &tm, nil
+	if globalArgs != nil {
+		if _, ok := globalArgs.Get(key); ok {
+			if value == "" {
+				updated := globalArgs.Delete(key)
+				globalArgs = &updated
+			} else {
+				globalArgs = globalArgs.AddOrReplace(key, value)
+			}
+		}
+	}
+	return globalArgs
 }
 
 func (dctx *dispatchContext) buildDispatchStates(stages []instructions.Stage) error {
@@ -402,7 +422,7 @@ func (dctx *dispatchContext) buildDispatchStates(stages []instructions.Stage) er
 			stageName:      st.Name,
 			prefixPlatform: dctx.opt.MultiPlatformRequested,
 			outline:        dctx.outline.clone(),
-			epoch:          dctx.opt.Epoch,
+			epoch:          dctx.epoch,
 		}
 
 		if v := st.Platform; v != "" {
@@ -813,10 +833,12 @@ func (dctx *dispatchContext) dispatchStages(ctx context.Context, allReachable ma
 			buildPlatforms:      dctx.platformOpt.buildPlatforms,
 			targetPlatform:      dctx.platformOpt.targetPlatform,
 			extraHosts:          dctx.opt.ExtraHosts,
+			gitAdvice:           dctx.opt.GitAdvice,
 			shmSize:             dctx.opt.ShmSize,
 			ulimit:              dctx.opt.Ulimits,
 			devices:             dctx.opt.Devices,
 			cgroupParent:        dctx.opt.CgroupParent,
+			linuxResources:      dctx.opt.LinuxResources,
 			llbCaps:             dctx.opt.LLBCaps,
 			sourceMap:           dctx.opt.SourceMap,
 			lint:                dctx.lint,
@@ -968,10 +990,12 @@ type dispatchOpt struct {
 	targetPlatform      ocispecs.Platform
 	buildPlatforms      []ocispecs.Platform
 	extraHosts          []llb.HostIP
+	gitAdvice           bool
 	shmSize             int64
 	ulimit              []*pb.Ulimit
 	devices             []*pb.CDIDevice
 	cgroupParent        string
+	linuxResources      *pb.LinuxResources
 	llbCaps             *apicaps.CapSet
 	sourceMap           *llb.SourceMap
 	lint                *linter.Linter
@@ -1441,6 +1465,7 @@ func dispatchRun(d *dispatchState, c *instructions.RunCommand, proxy *llb.ProxyE
 
 	shlex := *dopt.shlex
 	shlex.RawQuotes = true
+	shlex.RawEscapes = true
 	shlex.SkipUnsetEnv = true
 
 	pl, err := d.state.GetPlatform(context.TODO())
@@ -1462,6 +1487,20 @@ func dispatchRun(d *dispatchState, c *instructions.RunCommand, proxy *llb.ProxyE
 	if dopt.llbCaps != nil && dopt.llbCaps.Supports(pb.CapExecMetaCgroupParent) == nil {
 		if len(dopt.cgroupParent) > 0 {
 			opt = append(opt, llb.WithCgroupParent(dopt.cgroupParent))
+		}
+	}
+
+	if dopt.llbCaps != nil && dopt.llbCaps.Supports(pb.CapExecMetaLinuxResources) == nil {
+		if dopt.linuxResources != nil {
+			opt = append(opt, llb.WithLinuxResources(llb.LinuxResources{
+				Memory:     dopt.linuxResources.Memory,
+				MemorySwap: dopt.linuxResources.MemorySwap,
+				CPUShares:  dopt.linuxResources.CpuShares,
+				CPUPeriod:  dopt.linuxResources.CpuPeriod,
+				CPUQuota:   dopt.linuxResources.CpuQuota,
+				CpusetCpus: dopt.linuxResources.CpusetCpus,
+				CpusetMems: dopt.linuxResources.CpusetMems,
+			}))
 		}
 	}
 
@@ -1598,7 +1637,7 @@ func dispatchHealthcheck(d *dispatchState, c *instructions.HealthCheckCommand, l
 		StartInterval: c.Health.StartInterval,
 		Retries:       c.Health.Retries,
 	}
-	return commitToHistory(&d.image, fmt.Sprintf("HEALTHCHECK %q", d.image.Config.Healthcheck), false, nil, d.epoch)
+	return commitToHistory(&d.image, fmt.Sprintf("HEALTHCHECK %+v", *d.image.Config.Healthcheck), false, nil, d.epoch)
 }
 
 func dispatchUser(d *dispatchState, c *instructions.UserCommand, commit bool) error {

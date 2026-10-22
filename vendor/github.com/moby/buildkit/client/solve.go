@@ -7,12 +7,17 @@ import (
 	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/containerd/containerd/v2/core/content"
+	"github.com/containerd/containerd/v2/core/images"
 	contentlocal "github.com/containerd/containerd/v2/plugins/content/local"
+	"github.com/gofrs/flock"
 	controlapi "github.com/moby/buildkit/api/services/control"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/ociindex"
@@ -36,9 +41,10 @@ import (
 
 type SolveOpt struct {
 	Exports               []ExportEntry
+	CompatibilityVersion  int
 	EnableSessionExporter bool
-	LocalDirs             map[string]string // Deprecated: use LocalMounts
 	LocalMounts           map[string]fsutil.FS
+	LocalFilterOpt        filesync.FilterOptFunc
 	OCIStores             map[string]content.Store
 	SharedKey             string
 	Frontend              string
@@ -53,6 +59,7 @@ type SolveOpt struct {
 	Internal              bool
 	SourcePolicy          *spb.Policy
 	SourcePolicyProvider  session.Attachable
+	ProxyNetwork          bool
 	Ref                   string
 }
 
@@ -95,11 +102,7 @@ func (c *Client) solve(ctx context.Context, def *llb.Definition, runGateway runG
 		return nil, errors.New("invalid with def and cb")
 	}
 
-	mounts, err := prepareMounts(&opt)
-	if err != nil {
-		return nil, err
-	}
-	syncedDirs, err := prepareSyncedFiles(def, mounts)
+	syncedDirs, err := prepareSyncedFiles(def, opt.LocalMounts)
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +111,8 @@ func (c *Client) solve(ctx context.Context, def *llb.Definition, runGateway runG
 	if opt.Ref != "" {
 		ref = opt.Ref
 	}
+
+	callerCtx := ctx
 	eg, ctx := errgroup.WithContext(ctx)
 
 	statusContext, cancelStatus := context.WithCancelCause(context.Background())
@@ -121,7 +126,7 @@ func (c *Client) solve(ctx context.Context, def *llb.Definition, runGateway runG
 
 	if s == nil {
 		if opt.SessionPreInitialized {
-			return nil, errors.Errorf("no session provided for preinitialized option")
+			return nil, errors.New("no session provided for preinitialized option")
 		}
 		s, err = session.NewSession(statusContext, opt.SharedKey)
 		if err != nil {
@@ -134,11 +139,25 @@ func (c *Client) solve(ctx context.Context, def *llb.Definition, runGateway runG
 		return nil, err
 	}
 
+	cacheStores := make(map[string]*cacheExportStore)
+	for storePath := range cacheOpt.storesToUpdate {
+		key := "local:" + storePath
+		store := &cacheExportStore{
+			Store: cacheOpt.contentStores[key],
+			lock:  flock.New(filepath.Join(storePath, "cache.lock")),
+		}
+		// Defer until solve returns: export locks must outlive index publication,
+		// and also be released on error. Closing again after explicit cleanup is safe.
+		defer store.Close()
+		cacheOpt.contentStores[key] = store
+		cacheStores[storePath] = store
+	}
+
 	storesToUpdate := []string{}
 
 	if !opt.SessionPreInitialized {
 		if len(syncedDirs) > 0 {
-			s.Allow(filesync.NewFSSyncProvider(syncedDirs))
+			s.Allow(filesync.NewFSSyncProvider(syncedDirs, opt.LocalFilterOpt))
 		}
 
 		for _, a := range opt.Session {
@@ -189,7 +208,22 @@ func (c *Client) solve(ctx context.Context, def *llb.Definition, runGateway runG
 				if ex.OutputDir == "" {
 					return nil, errors.Errorf("output directory is required for %s exporter", ex.Type)
 				}
-				syncTargets = append(syncTargets, filesync.WithFSSyncDir(exID, ex.OutputDir))
+				if ex.Type == ExporterLocal {
+					mode := LocalExporterModeCopy
+					if ex.Attrs != nil {
+						mode, err = ParseLocalExporterMode(ex.Attrs["mode"])
+						if err != nil {
+							return nil, err
+						}
+					}
+					if mode == LocalExporterModeDelete {
+						syncTargets = append(syncTargets, filesync.WithFSSyncDirDelete(exID, ex.OutputDir))
+					} else {
+						syncTargets = append(syncTargets, filesync.WithFSSyncDir(exID, ex.OutputDir))
+					}
+				} else {
+					syncTargets = append(syncTargets, filesync.WithFSSyncDir(exID, ex.OutputDir))
+				}
 			}
 			if supportStore {
 				store := ex.OutputStore
@@ -311,7 +345,9 @@ func (c *Client) solve(ctx context.Context, def *llb.Definition, runGateway runG
 			Cache:                   &cacheOpt.options,
 			Entitlements:            slices.Clone(opt.AllowedEntitlements),
 			Internal:                opt.Internal,
+			CompatibilityVersion:    int64(opt.CompatibilityVersion),
 			SourcePolicy:            opt.SourcePolicy,
+			ProxyNetwork:            opt.ProxyNetwork,
 		}
 		if opt.SourcePolicyProvider != nil {
 			sopt.SourcePolicySession = s.ID()
@@ -420,7 +456,104 @@ func (c *Client) solve(ctx context.Context, def *llb.Definition, runGateway runG
 			}
 		}
 	}
+	// Release all export locks before attempting an exclusive reset lock.
+	for _, store := range cacheStores {
+		if err := store.Close(); err != nil {
+			bklog.G(callerCtx).WithError(err).WithField("cache_store_path", filepath.Dir(store.lock.Path())).Warn("failed to unlock cache store")
+		}
+	}
+	// Reset cache stores that have reset=true — delete unreferenced blobs
+	for _, ref := range cacheOpt.storesToReset {
+		if err := resetCacheStore(callerCtx, ref.store, ref.path, cacheStores[ref.path].lock); err != nil {
+			bklog.G(callerCtx).WithError(err).WithField("cache_store_path", ref.path).Warn("failed to reset cache store")
+		}
+	}
 	return res, nil
+}
+
+// cacheExportStore protects blobs from reset starting at the first write attempt,
+// including attempts that reuse existing blobs. The caller releases the lock only
+// after publishing the export in index.json, or when the solve fails.
+type cacheExportStore struct {
+	content.Store
+	mu     sync.RWMutex
+	lock   *flock.Flock
+	closed bool
+}
+
+func (s *cacheExportStore) Writer(ctx context.Context, opts ...content.WriterOpt) (content.Writer, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed {
+		return nil, errors.WithStack(os.ErrClosed)
+	}
+	if !s.lock.RLocked() {
+		_, err := s.lock.TryRLockContext(ctx, 100*time.Millisecond)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to lock cache store for export")
+		}
+	}
+	return s.Store.Writer(ctx, opts...)
+}
+
+// Close is called after session requests have finished or been canceled. Prevent
+// late handlers from reacquiring the lock after the solve has returned.
+func (s *cacheExportStore) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	return s.lock.Close()
+}
+
+// resetCacheStore deletes all blobs not referenced by any manifest in
+// index.json. Referenced blobs are always preserved.
+func resetCacheStore(ctx context.Context, cs content.Store, storePath string, lock *flock.Flock) error {
+	// Keep the lock file: unlinking it could allow another process to lock a
+	// different inode while an exporter is still using the original one.
+	defer lock.Close()
+	locked, err := lock.TryLock()
+	if err != nil {
+		return errors.Wrap(err, "reset: failed to lock cache store")
+	}
+	if !locked {
+		return errors.New("reset: cache store is in use, skipping cleanup")
+	}
+
+	idx := ociindex.NewStoreIndex(storePath)
+	index, err := idx.Read()
+	if err != nil {
+		return errors.Wrap(err, "reset: failed to read index.json")
+	}
+
+	var mu sync.Mutex
+	referenced := make(map[digest.Digest]struct{})
+	childrenHandler := images.ChildrenHandler(cs)
+	handler := images.HandlerFunc(func(ctx context.Context, desc ocispecs.Descriptor) ([]ocispecs.Descriptor, error) {
+		mu.Lock()
+		referenced[desc.Digest] = struct{}{}
+		mu.Unlock()
+		return childrenHandler(ctx, desc)
+	})
+	if err := images.Dispatch(ctx, handler, nil, index.Manifests...); err != nil {
+		return errors.Wrap(err, "reset: failed to collect referenced blobs")
+	}
+
+	var toDelete []digest.Digest
+	if err := cs.Walk(ctx, func(info content.Info) error {
+		if _, ok := referenced[info.Digest]; !ok {
+			toDelete = append(toDelete, info.Digest)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "reset: failed to walk content store")
+	}
+
+	for _, dgst := range toDelete {
+		if err := cs.Delete(ctx, dgst); err != nil {
+			bklog.G(ctx).WithError(err).Warnf("reset: failed to delete blob %s", dgst)
+		}
+	}
+	return nil
 }
 
 func prepareSyncedFiles(def *llb.Definition, localMounts map[string]fsutil.FS) (filesync.StaticDirSource, error) {
@@ -467,10 +600,16 @@ func prepareSyncedFiles(def *llb.Definition, localMounts map[string]fsutil.FS) (
 	return result, nil
 }
 
+type cacheStoreRef struct {
+	path  string
+	store content.Store
+}
+
 type cacheOptions struct {
 	options        controlapi.CacheOptions
 	contentStores  map[string]content.Store // key: ID of content store ("local:" + csDir)
 	storesToUpdate map[string]string        // key: path to content store, value: tag
+	storesToReset  []cacheStoreRef          // cache stores with reset=true
 	frontendAttrs  map[string]string
 }
 
@@ -479,6 +618,7 @@ func parseCacheOptions(ctx context.Context, isGateway bool, opt SolveOpt) (*cach
 		cacheExports []*controlapi.CacheOptionsEntry
 		cacheImports []*controlapi.CacheOptionsEntry
 	)
+	var storesToReset []cacheStoreRef
 	contentStores := make(map[string]content.Store)
 	storesToUpdate := make(map[string]string)
 	frontendAttrs := make(map[string]string)
@@ -503,6 +643,16 @@ func parseCacheOptions(ctx context.Context, isGateway bool, opt SolveOpt) (*cach
 			}
 			// TODO(AkihiroSuda): support custom index JSON path and tag
 			storesToUpdate[csDir] = tag
+
+			if v, ok := ex.Attrs["reset"]; ok {
+				b, err := strconv.ParseBool(v)
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to parse reset attribute")
+				}
+				if b {
+					storesToReset = append(storesToReset, cacheStoreRef{path: csDir, store: cs})
+				}
+			}
 		}
 		if ex.Type == "registry" {
 			regRef := ex.Attrs["ref"]
@@ -582,24 +732,8 @@ func parseCacheOptions(ctx context.Context, isGateway bool, opt SolveOpt) (*cach
 		},
 		contentStores:  contentStores,
 		storesToUpdate: storesToUpdate,
+		storesToReset:  storesToReset,
 		frontendAttrs:  frontendAttrs,
 	}
 	return &res, nil
-}
-
-func prepareMounts(opt *SolveOpt) (map[string]fsutil.FS, error) {
-	// merge local mounts and fallback local directories together
-	mounts := make(map[string]fsutil.FS)
-	maps.Copy(mounts, opt.LocalMounts)
-	for k, dir := range opt.LocalDirs {
-		mount, err := fsutil.NewFS(dir)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := mounts[k]; ok {
-			return nil, errors.Errorf("local mount %s already exists", k)
-		}
-		mounts[k] = mount
-	}
-	return mounts, nil
 }

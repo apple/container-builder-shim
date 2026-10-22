@@ -21,12 +21,14 @@ type GitCLI struct {
 	args    []string
 	dir     string
 	streams StreamFunc
+	advice  *bool
 
 	workTree string
 	gitDir   string
 
 	sshAuthSock   string
 	sshKnownHosts string
+	hostGitConfig bool
 }
 
 // Option provides a variadic option for configuring the git client.
@@ -50,6 +52,13 @@ func WithExec(exec func(context.Context, *exec.Cmd) error) Option {
 func WithArgs(args ...string) Option {
 	return func(b *GitCLI) {
 		b.args = append(b.args, args...)
+	}
+}
+
+// WithGitAdvice controls whether Git advice messages are emitted.
+func WithGitAdvice(enabled bool) Option {
+	return func(b *GitCLI) {
+		b.advice = &enabled
 	}
 }
 
@@ -97,6 +106,15 @@ func WithSSHKnownHosts(sshKnownHosts string) Option {
 	}
 }
 
+// WithHostGitConfig allows git to read the host system and user git config.
+// This is intended for client-side local git inspection. The default remains
+// isolated so daemon-side callers do not leak host configuration into git.
+func WithHostGitConfig() Option {
+	return func(b *GitCLI) {
+		b.hostGitConfig = true
+	}
+}
+
 type StreamFunc func(context.Context) (io.WriteCloser, io.WriteCloser, func())
 
 // WithStreams configures a callback for getting the streams for a command. The
@@ -108,7 +126,7 @@ func WithStreams(streams StreamFunc) Option {
 	}
 }
 
-// New initializes a new git client
+// NewGitCLI initializes a new git client
 func NewGitCLI(opts ...Option) *GitCLI {
 	c := &GitCLI{}
 	for _, opt := range opts {
@@ -155,6 +173,9 @@ func (cli *GitCLI) Run(ctx context.Context, args ...string) (_ []byte, err error
 
 		// Block sneaky repositories from using repos from the filesystem as submodules.
 		cmd.Args = append(cmd.Args, "-c", "protocol.file.allow=user")
+		if cli.advice != nil && !*cli.advice {
+			cmd.Args = append(cmd.Args, "-c", "advice.detachedHead=false")
+		}
 		if cli.workTree != "" {
 			cmd.Args = append(cmd.Args, "--work-tree", cli.workTree)
 		}
@@ -191,9 +212,42 @@ func (cli *GitCLI) Run(ctx context.Context, args ...string) (_ []byte, err error
 			"GIT_TERMINAL_PROMPT=0",
 			"GIT_SSH_COMMAND=" + getGitSSHCommand(cli.sshKnownHosts),
 			//	"GIT_TRACE=1",
-			"GIT_CONFIG_NOSYSTEM=1", // Disable reading from system gitconfig.
-			"HOME=/dev/null",        // Disable reading from user gitconfig.
-			"LC_ALL=C",              // Ensure consistent output.
+			"LC_ALL=C", // Ensure consistent output.
+		}
+		if cli.advice != nil {
+			if *cli.advice {
+				cmd.Env = append(cmd.Env, "GIT_ADVICE=1")
+			} else {
+				cmd.Env = append(cmd.Env, "GIT_ADVICE=0")
+			}
+		}
+		if cli.hostGitConfig {
+			for _, ev := range [...]string{
+				"HOME",
+				"XDG_CONFIG_HOME",
+				"USERPROFILE",
+				"HOMEDRIVE",
+				"HOMEPATH",
+				"GIT_CONFIG_GLOBAL",
+				"GIT_CONFIG_SYSTEM",
+				// When git runs as root under sudo it consults SUDO_UID to trust
+				// repositories owned by the user who invoked sudo, so client-side
+				// callers such as `sudo docker build` don't trip git's "detected
+				// dubious ownership" check and silently lose commit provenance.
+				// This mirrors git's own default behavior and does not disable
+				// safe.directory checks. See docker/buildx#3855.
+				"SUDO_UID",
+			} {
+				if v, ok := os.LookupEnv(ev); ok {
+					cmd.Env = append(cmd.Env, ev+"="+v)
+				}
+			}
+		} else {
+			cmd.Env = append(cmd.Env,
+				"GIT_CONFIG_NOSYSTEM=1",         // Disable reading from system gitconfig.
+				"HOME="+os.DevNull,              // Disable reading from user gitconfig.
+				"GIT_CONFIG_GLOBAL="+os.DevNull, // Disable reading from global gitconfig.
+			)
 		}
 		for _, ev := range proxyEnvVars {
 			if v, ok := os.LookupEnv(ev); ok {
@@ -244,7 +298,7 @@ func (cli *GitCLI) Run(ctx context.Context, args ...string) (_ []byte, err error
 }
 
 func getGitSSHCommand(knownHosts string) string {
-	gitSSHCommand := "ssh -F /dev/null"
+	gitSSHCommand := "ssh -F " + os.DevNull
 	if knownHosts != "" {
 		gitSSHCommand += " -o UserKnownHostsFile=" + knownHosts
 	} else {

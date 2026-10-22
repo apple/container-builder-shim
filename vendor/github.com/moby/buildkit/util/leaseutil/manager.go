@@ -47,8 +47,8 @@ type LeaseRef struct {
 	err       error
 }
 
-func (l *LeaseRef) Discard() error {
-	return l.lm.Delete(context.Background(), l.l)
+func (l *LeaseRef) Discard(ctx context.Context) error {
+	return l.lm.Delete(context.WithoutCancel(ctx), l.l)
 }
 
 func (l *LeaseRef) Adopt(ctx context.Context) error {
@@ -65,7 +65,7 @@ func (l *LeaseRef) Adopt(ctx context.Context) error {
 	}
 	currentID, ok := leases.FromContext(ctx)
 	if !ok {
-		return errors.Errorf("missing lease requirement for adopt")
+		return errors.New("missing lease requirement for adopt")
 	}
 	for _, r := range l.resources {
 		if err := l.lm.AddResource(ctx, leases.Lease{ID: currentID}, r); err != nil {
@@ -73,10 +73,10 @@ func (l *LeaseRef) Adopt(ctx context.Context) error {
 		}
 	}
 	if len(l.resources) == 0 {
-		l.Discard()
+		l.Discard(ctx)
 		return nil
 	}
-	go l.Discard()
+	go l.Discard(ctx)
 	return nil
 }
 
