@@ -83,7 +83,7 @@ check-deps: ## Verify go.mod, go.sum and vendor/ are up to date
 	git add --intent-to-add --all -- go.mod go.sum vendor
 	@if ! git diff --quiet -- go.mod go.sum vendor; then \
 		echo "Please run 'go mod tidy && go mod vendor'. Out of date dependency files:" >&2; \
-		git diff --name-only -- go.mod go.sum vendor >&2; \
+		git --no-pager diff --name-only -- go.mod go.sum vendor >&2; \
 		exit 1; \
 	fi
 
