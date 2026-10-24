@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -28,14 +29,21 @@ const (
 	keyDirName            = "dir-name"
 	keyExporterMetaPrefix = "exporter-md-"
 
-	keyExporterID = "buildkit-attachable-exporter-id"
+	keyExporterID                    = "buildkit-attachable-exporter-id"
+	keyExporterMultiPlatformTransfer = "buildkit-exporter-multi-platform"
 )
 
 type fsSyncProvider struct {
-	dirs   DirSource
-	p      progressCb
-	doneCh chan error
+	dirs       DirSource
+	filterOpts []FilterOptFunc
+	p          progressCb
+	doneCh     chan error
 }
+
+// FilterOptFunc can adjust the filters sent by the builder for a local directory
+// before it is synced. Changes affect only the current request. The function
+// may be called concurrently for different sync requests.
+type FilterOptFunc func(name string, opt *fsutil.FilterOpt) error
 
 type FileOutputFunc func(map[string]string) (io.WriteCloser, error)
 
@@ -57,10 +65,12 @@ func (dirs StaticDirSource) LookupDir(name string) (fsutil.FS, bool) {
 	return dir, found
 }
 
-// NewFSSyncProvider creates a new provider for sending files from client
-func NewFSSyncProvider(dirs DirSource) session.Attachable {
+// NewFSSyncProvider creates a new provider for sending files from client.
+// filterOpts, when set, are called in order before filtering each sync request.
+func NewFSSyncProvider(dirs DirSource, filterOpts ...FilterOptFunc) session.Attachable {
 	return &fsSyncProvider{
-		dirs: dirs,
+		dirs:       dirs,
+		filterOpts: filterOpts,
 	}
 }
 
@@ -105,11 +115,20 @@ func (sp *fsSyncProvider) handle(method string, stream grpc.ServerStream) (retEr
 	if !ok {
 		return InvalidSessionError{status.Errorf(codes.NotFound, "no access allowed to dir %q", dirName)}
 	}
-	dir, err := fsutil.NewFilterFS(dir, &fsutil.FilterOpt{
+	filterOpt := &fsutil.FilterOpt{
 		ExcludePatterns: excludes,
 		IncludePatterns: includes,
 		FollowPaths:     followPaths,
-	})
+	}
+	for _, fn := range sp.filterOpts {
+		if fn == nil {
+			continue
+		}
+		if err := fn(dirName, filterOpt); err != nil {
+			return err
+		}
+	}
+	dir, err := fsutil.NewFilterFS(dir, filterOpt)
 	if err != nil {
 		return err
 	}
@@ -207,6 +226,7 @@ func FSSync(ctx context.Context, c session.Caller, opt FSSendRequestOpt) error {
 
 	opts[keyDirName] = []string{opt.Name}
 
+	ctx = c.Context(ctx)
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer func() { cancel(errors.WithStack(context.Canceled)) }()
 
@@ -252,9 +272,10 @@ type FSSyncTarget interface {
 }
 
 type fsSyncTarget struct {
-	id     int
-	outdir string
-	f      FileOutputFunc
+	id         int
+	outdir     string
+	deleteMode bool
+	f          FileOutputFunc
 }
 
 func (target *fsSyncTarget) target() *fsSyncTarget {
@@ -275,10 +296,23 @@ func WithFSSyncDir(id int, outdir string) FSSyncTarget {
 	}
 }
 
+func WithFSSyncDirDelete(id int, outdir string) FSSyncTarget {
+	return &fsSyncTarget{
+		id:         id,
+		outdir:     outdir,
+		deleteMode: true,
+	}
+}
+
+type fsSyncDirTarget struct {
+	outdir     string
+	deleteMode bool
+}
+
 func NewFSSyncTarget(targets ...FSSyncTarget) *SyncTarget {
 	st := &SyncTarget{
 		fs:      make(map[int]FileOutputFunc),
-		outdirs: make(map[int]string),
+		outdirs: make(map[int]fsSyncDirTarget),
 	}
 	st.Add(targets...)
 	return st
@@ -286,7 +320,7 @@ func NewFSSyncTarget(targets ...FSSyncTarget) *SyncTarget {
 
 type SyncTarget struct {
 	fs      map[int]FileOutputFunc
-	outdirs map[int]string
+	outdirs map[int]fsSyncDirTarget
 }
 
 var _ session.Attachable = &SyncTarget{}
@@ -298,7 +332,7 @@ func (sp *SyncTarget) Add(targets ...FSSyncTarget) {
 			sp.fs[t.id] = t.f
 		}
 		if t.outdir != "" {
-			sp.outdirs[t.id] = t.outdir
+			sp.outdirs[t.id] = fsSyncDirTarget{outdir: t.outdir, deleteMode: t.deleteMode}
 		}
 	}
 }
@@ -325,8 +359,11 @@ func (sp *SyncTarget) chooser(ctx context.Context) int {
 
 func (sp *SyncTarget) DiffCopy(stream FileSend_DiffCopyServer) (err error) {
 	id := sp.chooser(stream.Context())
-	if outdir, ok := sp.outdirs[id]; ok {
-		return syncTargetDiffCopy(stream, outdir)
+	if target, ok := sp.outdirs[id]; ok {
+		if target.deleteMode && !supportsExporterMultiPlatformTransfer(stream.Context()) {
+			return errors.New("local exporter mode=delete requires a BuildKit daemon with multi-platform local export support")
+		}
+		return syncTargetDiffCopy(stream, target.outdir, target.deleteMode)
 	}
 	f, ok := sp.fs[id]
 	if !ok {
@@ -356,17 +393,38 @@ func (sp *SyncTarget) DiffCopy(stream FileSend_DiffCopyServer) (err error) {
 	return writeTargetFile(stream, wc)
 }
 
-func CopyToCaller(ctx context.Context, fs fsutil.FS, id int, c session.Caller, progress func(int, bool)) error {
+type CopyToCallerOpt func(metadata.MD)
+
+func WithExporterMultiPlatformTransfer() CopyToCallerOpt {
+	return func(opts metadata.MD) {
+		opts.Set(keyExporterMultiPlatformTransfer, "1")
+	}
+}
+
+func supportsExporterMultiPlatformTransfer(ctx context.Context) bool {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return false
+	}
+	return slices.Contains(md.Get(keyExporterMultiPlatformTransfer), "1")
+}
+
+func CopyToCaller(ctx context.Context, fs fsutil.FS, id int, c session.Caller, progress func(int, bool), copyOpts ...CopyToCallerOpt) error {
 	method := session.MethodURL(FileSend_ServiceDesc.ServiceName, "diffcopy")
 	if !c.Supports(method) {
 		return errors.Errorf("method %s not supported by the client", method)
 	}
+
+	ctx = c.Context(ctx)
 
 	client := NewFileSendClient(c.Conn())
 
 	opts, ok := metadata.FromOutgoingContext(ctx)
 	if !ok {
 		opts = make(map[string][]string)
+	}
+	for _, opt := range copyOpts {
+		opt(opts)
 	}
 	if existingVal, ok := opts[keyExporterID]; ok {
 		bklog.G(ctx).Warnf("overwriting grpc metadata key %q from value %+v to %+v", keyExporterID, existingVal, id)
@@ -388,6 +446,7 @@ func CopyFileWriter(ctx context.Context, md map[string]string, id int, c session
 		return nil, errors.Errorf("method %s not supported by the client", method)
 	}
 
+	ctx = c.Context(ctx)
 	client := NewFileSendClient(c.Conn())
 
 	opts, ok := metadata.FromOutgoingContext(ctx)

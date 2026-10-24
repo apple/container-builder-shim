@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/containerd/platforms"
 	"github.com/distribution/reference"
@@ -41,6 +40,13 @@ const (
 	keyShmSize          = "shm-size"
 	keyTargetPlatform   = "platform"
 	keyUlimit           = "ulimit"
+	keyMemory           = "memory"
+	keyMemorySwap       = "memswap"
+	keyCPUShares        = "cpushares"
+	keyCPUPeriod        = "cpuperiod"
+	keyCPUQuota         = "cpuquota"
+	keyCpusetCpus       = "cpusetcpus"
+	keyCpusetMems       = "cpusetmems"
 	keyCacheFrom        = "cache-from"    // for registry only. deprecated in favor of keyCacheImports
 	keyCacheImports     = "cache-imports" // JSON representation of []CacheOptionsEntry
 
@@ -51,22 +57,23 @@ const (
 	keyHostnameArg          = "build-arg:BUILDKIT_SANDBOX_HOSTNAME"
 	keyDockerfileLintArg    = "build-arg:BUILDKIT_DOCKERFILE_CHECK"
 	keyContextKeepGitDirArg = "build-arg:BUILDKIT_CONTEXT_KEEP_GIT_DIR"
-	keySourceDateEpoch      = "build-arg:SOURCE_DATE_EPOCH"
+	keyGitAdviceArg         = "build-arg:BUILDKIT_GIT_ADVICE"
 )
 
 type Config struct {
 	BuildArgs        map[string]string
 	CacheIDNamespace string
 	CgroupParent     string
-	Epoch            *time.Time
 	ExtraHosts       []llb.HostIP
 	Hostname         string
 	ImageResolveMode llb.ResolveMode
 	Labels           map[string]string
 	NetworkMode      pb.NetMode
+	GitAdvice        bool
 	ShmSize          int64
 	Target           string
 	Ulimits          []*pb.Ulimit
+	LinuxResources   *pb.LinuxResources
 	Devices          []*pb.CDIDevice
 	LinterConfig     *linter.Config
 
@@ -147,6 +154,10 @@ func (bc *Client) BuildOpts() client.BuildOpts {
 	return bc.bopts
 }
 
+func (bc *Client) GatewayClient() client.Client {
+	return bc.client
+}
+
 func (bc *Client) init() error {
 	opts := bc.bopts.Opts
 
@@ -192,6 +203,12 @@ func (bc *Client) init() error {
 	}
 	bc.Ulimits = ulimits
 
+	linuxRes, err := parseLinuxResources(opts)
+	if err != nil {
+		return errors.Wrap(err, "failed to parse resource limits")
+	}
+	bc.LinuxResources = linuxRes
+
 	defaultNetMode, err := parseNetMode(opts[keyForceNetwork])
 	if err != nil {
 		return err
@@ -218,7 +235,7 @@ func (bc *Client) init() error {
 			return errors.Errorf("invalid boolean value for multi-platform: %s", v)
 		}
 		if !b && multiPlatform {
-			return errors.Errorf("conflicting config: returning multiple target platforms is not allowed")
+			return errors.New("conflicting config: returning multiple target platforms is not allowed")
 		}
 		multiPlatform = b
 	}
@@ -251,12 +268,6 @@ func (bc *Client) init() error {
 	}
 	bc.CacheImports = cacheImports
 
-	epoch, err := parseSourceDateEpoch(opts[keySourceDateEpoch])
-	if err != nil {
-		return err
-	}
-	bc.Epoch = epoch
-
 	attests, err := attestations.Parse(opts)
 	if err != nil {
 		return err
@@ -276,7 +287,7 @@ func (bc *Client) init() error {
 			}
 		}
 		if ref == nil {
-			return errors.Errorf("sbom scanner cannot be empty")
+			return errors.New("sbom scanner cannot be empty")
 		}
 
 		bc.SBOM = &SBOM{
@@ -300,6 +311,12 @@ func (bc *Client) init() error {
 		bc.LinterConfig, err = linter.ParseLintOptions(v)
 		if err != nil {
 			return errors.Wrapf(err, "failed to parse %s", keyDockerfileLintArg)
+		}
+	}
+	if v := opts[keyGitAdviceArg]; v != "" {
+		bc.GitAdvice, err = strconv.ParseBool(v)
+		if err != nil {
+			return errors.Wrapf(err, "failed to parse %s", keyGitAdviceArg)
 		}
 	}
 
@@ -377,15 +394,11 @@ func (bc *Client) ReadEntrypoint(ctx context.Context, lang string, opts ...llb.L
 		return nil, err
 	}
 
-	dt, err := ref.ReadFile(ctx, client.ReadRequest{
-		Filename: bctx.filename,
-	})
+	dt, err := ReadFile(ctx, ref, bctx.filename)
 	if err != nil {
-		if path.Base(bctx.filename) == DefaultDockerfileName {
+		if path.Base(bctx.filename) == DefaultDockerfileName && !isFileTooLarge(err) {
 			var err1 error
-			dt, err1 = ref.ReadFile(ctx, client.ReadRequest{
-				Filename: path.Join(path.Dir(bctx.filename), strings.ToLower(DefaultDockerfileName)),
-			})
+			dt, err1 = ReadFile(ctx, ref, path.Join(path.Dir(bctx.filename), strings.ToLower(DefaultDockerfileName)))
 			if err1 == nil {
 				err = nil
 			}
@@ -397,12 +410,14 @@ func (bc *Client) ReadEntrypoint(ctx context.Context, lang string, opts ...llb.L
 	smap := llb.NewSourceMap(src, bctx.filename, lang, dt)
 	smap.Definition = def
 
-	dt, err = ref.ReadFile(ctx, client.ReadRequest{
-		Filename: bctx.filename + ".dockerignore",
-	})
+	// a missing ignore file is not an error, but an oversized one must not
+	// be silently skipped
+	dt, err = ReadFile(ctx, ref, bctx.filename+".dockerignore")
 	if err == nil {
 		bc.dockerignore = dt
 		bc.dockerignoreName = bctx.filename + ".dockerignore"
+	} else if isFileTooLarge(err) {
+		return nil, err
 	}
 
 	return &Source{
@@ -546,9 +561,12 @@ func (bc *Client) dockerIgnorePatterns(ctx context.Context, bctx *buildContext) 
 		if err != nil {
 			return nil, err
 		}
-		dt, _ := ref.ReadFile(ctx, client.ReadRequest{ // ignore error
-			Filename: DefaultDockerignoreName,
-		})
+		// a missing ignore file is not an error, but an oversized one must
+		// not be silently skipped
+		dt, err := ReadFile(ctx, ref, DefaultDockerignoreName)
+		if isFileTooLarge(err) {
+			return nil, err
+		}
 		if dt == nil {
 			dt = []byte{}
 		}

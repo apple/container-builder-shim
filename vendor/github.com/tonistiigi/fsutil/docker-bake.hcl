@@ -6,11 +6,16 @@ variable "DESTDIR" {
   default = "./bin"
 }
 
+variable "BENCH_FILE_SIZE" {
+  default = null
+}
+
 target "_platforms" {
   platforms = [
     "darwin/amd64",
     "darwin/arm64",
     "freebsd/amd64",
+    "freebsd/arm",
     "freebsd/arm64",
     "linux/386",
     "linux/amd64",
@@ -19,8 +24,10 @@ target "_platforms" {
     "linux/ppc64le",
     "linux/s390x",
     "netbsd/amd64",
+    "netbsd/arm",
     "netbsd/arm64",
     "openbsd/amd64",
+    "openbsd/arm",
     "openbsd/arm64",
     "windows/amd64",
     "windows/arm64"
@@ -58,6 +65,24 @@ target "test-noroot" {
   inherits = ["build"]
   target = "test-noroot-coverage"
   output = ["${DESTDIR}/coverage"]
+}
+
+target "bench-root" {
+  inherits = ["build"]
+  target = "bench-root-results"
+  output = ["${DESTDIR}/bench"]
+  args = {
+    BENCH_FILE_SIZE = BENCH_FILE_SIZE
+  }
+}
+
+target "bench-noroot" {
+  inherits = ["build"]
+  target = "bench-noroot-results"
+  output = ["${DESTDIR}/bench"]
+  args = {
+    BENCH_FILE_SIZE = BENCH_FILE_SIZE
+  }
 }
 
 group "lint" {

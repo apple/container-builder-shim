@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/containerd/errdefs"
 	"github.com/containerd/log"
@@ -38,6 +39,9 @@ type httpReadSeeker struct {
 }
 
 func newHTTPReadSeeker(size int64, open func(offset int64) (io.ReadCloser, error)) (io.ReadCloser, error) {
+	if size < -1 {
+		return nil, fmt.Errorf("httpReadSeeker: invalid size %d: %w", size, errdefs.ErrInvalidArgument)
+	}
 	return &httpReadSeeker{
 		size: size,
 		open: open,
@@ -49,6 +53,17 @@ func (hrs *httpReadSeeker) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
+	var rem int64
+	if hrs.size >= 0 {
+		rem = hrs.size - hrs.offset
+		if rem < 0 {
+			return 0, fmt.Errorf("httpReadSeeker: read past expected size %d: %w", hrs.size, errdefs.ErrFailedPrecondition)
+		}
+		if rem < math.MaxInt64 && int64(len(p)) > rem+1 {
+			p = p[:rem+1]
+		}
+	}
+
 	rd, err := hrs.reader()
 	if err != nil {
 		return 0, err
@@ -56,6 +71,15 @@ func (hrs *httpReadSeeker) Read(p []byte) (n int, err error) {
 
 	n, err = rd.Read(p)
 	hrs.offset += int64(n)
+	if hrs.size >= 0 && int64(n) > rem {
+		if hrs.rc != nil {
+			if clsErr := hrs.rc.Close(); clsErr != nil {
+				log.L.WithError(clsErr).Error("httpReadSeeker: failed to close ReadCloser")
+			}
+			hrs.rc = nil
+		}
+		return 0, fmt.Errorf("httpReadSeeker: read past expected size %d: %w", hrs.size, errdefs.ErrFailedPrecondition)
+	}
 	if n > 0 || err == nil {
 		hrs.errsWithNoProgress = 0
 	}
@@ -105,7 +129,7 @@ func (hrs *httpReadSeeker) Close() error {
 
 func (hrs *httpReadSeeker) Seek(offset int64, whence int) (int64, error) {
 	if hrs.closed {
-		return 0, fmt.Errorf("Fetcher.Seek: closed: %w", errdefs.ErrUnavailable)
+		return 0, fmt.Errorf("httpReadSeeker.Seek: closed: %w", errdefs.ErrUnavailable)
 	}
 
 	abs := hrs.offset
@@ -116,21 +140,21 @@ func (hrs *httpReadSeeker) Seek(offset int64, whence int) (int64, error) {
 		abs += offset
 	case io.SeekEnd:
 		if hrs.size == -1 {
-			return 0, fmt.Errorf("Fetcher.Seek: unknown size, cannot seek from end: %w", errdefs.ErrUnavailable)
+			return 0, fmt.Errorf("httpReadSeeker.Seek: unknown size, cannot seek from end: %w", errdefs.ErrUnavailable)
 		}
 		abs = hrs.size + offset
 	default:
-		return 0, fmt.Errorf("Fetcher.Seek: invalid whence: %w", errdefs.ErrInvalidArgument)
+		return 0, fmt.Errorf("httpReadSeeker.Seek: invalid whence: %w", errdefs.ErrInvalidArgument)
 	}
 
 	if abs < 0 {
-		return 0, fmt.Errorf("Fetcher.Seek: negative offset: %w", errdefs.ErrInvalidArgument)
+		return 0, fmt.Errorf("httpReadSeeker.Seek: negative offset: %w", errdefs.ErrInvalidArgument)
 	}
 
 	if abs != hrs.offset {
 		if hrs.rc != nil {
 			if err := hrs.rc.Close(); err != nil {
-				log.L.WithError(err).Error("Fetcher.Seek: failed to close ReadCloser")
+				log.L.WithError(err).Error("httpReadSeeker.Seek: failed to close ReadCloser")
 			}
 
 			hrs.rc = nil

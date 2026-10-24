@@ -4,15 +4,24 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"io"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/moby/buildkit/frontend/dockerfile/dfgitutil"
 	"github.com/moby/buildkit/frontend/gateway/client"
 	gwpb "github.com/moby/buildkit/frontend/gateway/pb"
+	"github.com/moby/buildkit/solver/pb"
+	"github.com/moby/buildkit/util/archiveutil"
+	"github.com/moby/buildkit/util/gitutil/gitobject"
+	archivecompression "github.com/moby/go-archive/compression"
 	"github.com/pkg/errors"
 )
 
@@ -36,10 +45,14 @@ var httpPrefix = regexp.MustCompile(`^https?://`)
 type buildContext struct {
 	context              *llb.State // set if not local
 	dockerfile           *llb.State // override remoteContext if set
+	contextRef           client.Reference
 	contextLocalName     string
 	dockerfileLocalName  string
 	filename             string
 	forceLocalDockerfile bool
+	sourceOp             *pb.SourceOp
+	httpContextIsArchive bool
+	httpContextFilename  string
 }
 
 func (bc *Client) marshalOpts() []llb.ConstraintsOpt {
@@ -75,16 +88,26 @@ func (bc *Client) initContext(ctx context.Context) (*buildContext, error) {
 		keepGit = &v
 	}
 	var extraGitOpts []llb.GitOption
-	if opts[keySourceDateEpoch] != "" {
+	if opts[buildArgPrefix+"SOURCE_DATE_EPOCH"] != "" {
 		extraGitOpts = append(extraGitOpts, llb.GitMTimeCommit())
 	}
+	extraGitOpts = append(extraGitOpts, gitAdviceOpts(bc.GitAdvice)...)
 	if st, ok, err := DetectGitContext(opts[localNameContext], keepGit, extraGitOpts...); ok {
 		if err != nil {
 			return nil, err
 		}
+		sourceOp, err := sourceOpFromState(ctx, st, bc.marshalOpts()...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to derive git source op")
+		}
 		bctx.context = st
 		bctx.dockerfile = st
+		bctx.sourceOp = sourceOp
 	} else if st, filename, ok := DetectHTTPContext(opts[localNameContext]); ok {
+		sourceOp, err := sourceOpFromState(ctx, st, bc.marshalOpts()...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to derive http source op")
+		}
 		def, err := st.Marshal(ctx, bc.marshalOpts()...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to marshal httpcontext")
@@ -110,16 +133,20 @@ func (bc *Client) initContext(ctx context.Context) (*buildContext, error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to read downloaded context")
 		}
-		if isArchive(dt) {
+		if archiveutil.IsArchive(dt) {
 			bc := llb.Scratch().File(llb.Copy(*st, filepath.Join("/", filename), "/", &llb.CopyInfo{
 				AttemptUnpack: true,
 			}))
 			bctx.context = &bc
+			bctx.httpContextIsArchive = true
 		} else {
 			bctx.filename = filename
 			bctx.context = st
 		}
+		bctx.contextRef = ref
 		bctx.dockerfile = bctx.context
+		bctx.sourceOp = sourceOp
+		bctx.httpContextFilename = filename
 	} else if (&gwcaps).Supports(gwpb.CapFrontendInputs) == nil {
 		inputs, err := bc.client.Inputs(ctx)
 		if err != nil {
@@ -146,6 +173,121 @@ func (bc *Client) initContext(ctx context.Context) (*buildContext, error) {
 	}
 
 	return bctx, nil
+}
+
+func (bc *Client) ResolveMainContextSourceDateEpoch(ctx context.Context) (*time.Time, error) {
+	bctx, err := bc.buildContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if bctx.sourceOp == nil {
+		return nil, nil
+	}
+
+	opt := sourceresolver.Opt{
+		LogName: "[internal] resolve main build context metadata",
+	}
+	if strings.HasPrefix(bctx.sourceOp.Identifier, "git://") {
+		opt.GitOpt = &sourceresolver.ResolveGitOpt{ReturnObject: true}
+	}
+	md, err := bc.client.ResolveSourceMetadata(ctx, cloneSourceOp(bctx.sourceOp), opt)
+	if err != nil {
+		return nil, err
+	}
+	if md.Git != nil && len(md.Git.CommitObject) > 0 {
+		obj, err := gitobject.Parse(md.Git.CommitObject)
+		if err != nil {
+			return nil, err
+		}
+		commit, err := obj.ToCommit()
+		if err != nil {
+			return nil, err
+		}
+		return commit.Committer.When, nil
+	}
+	if md.HTTP != nil {
+		if md.HTTP.LastModified != nil {
+			return md.HTTP.LastModified, nil
+		}
+		if bctx.httpContextIsArchive {
+			return archiveMaxTimeFromHTTPArchive(ctx, bctx)
+		}
+	}
+	return nil, nil
+}
+
+func archiveMaxTimeFromHTTPArchive(ctx context.Context, bctx *buildContext) (*time.Time, error) {
+	if bctx.contextRef == nil || bctx.httpContextFilename == "" {
+		return nil, nil
+	}
+	dt, err := ReadFile(ctx, bctx.contextRef, bctx.httpContextFilename)
+	if err != nil {
+		return nil, err
+	}
+	rc, err := archivecompression.DecompressStream(bytes.NewReader(dt))
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+
+	tr := tar.NewReader(rc)
+	var maxTime *time.Time
+	for {
+		hdr, err := tr.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return maxTime, nil
+			}
+			return nil, err
+		}
+		if !hdr.FileInfo().Mode().IsRegular() {
+			continue
+		}
+		tm := hdr.ModTime.UTC()
+		if maxTime == nil || tm.After(*maxTime) {
+			maxTime = &tm
+		}
+	}
+}
+
+func cloneSourceOp(op *pb.SourceOp) *pb.SourceOp {
+	if op == nil {
+		return nil
+	}
+	return &pb.SourceOp{
+		Identifier: op.Identifier,
+		Attrs:      maps.Clone(op.Attrs),
+	}
+}
+
+func sourceOpFromState(ctx context.Context, st *llb.State, opts ...llb.ConstraintsOpt) (*pb.SourceOp, error) {
+	if st == nil {
+		return nil, nil
+	}
+	def, err := st.Marshal(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	dt := def.ToPB().Def
+	var src *pb.SourceOp
+	for _, d := range dt {
+		var op pb.Op
+		if err := op.Unmarshal(d); err != nil {
+			return nil, err
+		}
+		opSrc := op.GetSource()
+		if opSrc == nil {
+			continue
+		}
+		if src != nil {
+			return nil, errors.New("state marshaled to multiple source ops")
+		}
+		src = opSrc
+	}
+	if src == nil {
+		return nil, errors.New("state did not marshal to a source op")
+	}
+	return cloneSourceOp(src), nil
 }
 
 func DetectGitContext(ref string, keepGit *bool, opts ...llb.GitOption) (*llb.State, bool, error) {
@@ -175,9 +317,19 @@ func DetectGitContext(ref string, keepGit *bool, opts ...llb.GitOption) (*llb.St
 	if g.MTime != "" {
 		gitOpts = append(gitOpts, llb.GitMTime(g.MTime))
 	}
+	if g.FetchByCommit {
+		gitOpts = append(gitOpts, llb.GitFetchByCommit())
+	}
 
 	st := llb.Git(g.Remote, "", gitOpts...)
 	return &st, true, nil
+}
+
+func gitAdviceOpts(enabled bool) []llb.GitOption {
+	if enabled {
+		return []llb.GitOption{llb.GitAdvice(true)}
+	}
+	return nil
 }
 
 func DetectHTTPContext(ref string) (*llb.State, string, bool) {
@@ -187,25 +339,6 @@ func DetectHTTPContext(ref string) (*llb.State, string, bool) {
 		return &st, filename, true
 	}
 	return nil, "", false
-}
-
-func isArchive(header []byte) bool {
-	for _, m := range [][]byte{
-		{0x42, 0x5A, 0x68},                   // bzip2
-		{0x1F, 0x8B, 0x08},                   // gzip
-		{0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00}, // xz
-	} {
-		if len(header) < len(m) {
-			continue
-		}
-		if bytes.Equal(m, header[:len(m)]) {
-			return true
-		}
-	}
-
-	r := tar.NewReader(bytes.NewBuffer(header))
-	_, err := r.Next()
-	return err == nil
 }
 
 func scopeToSubDir(c *llb.State, dir string) *llb.State {

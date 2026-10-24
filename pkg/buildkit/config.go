@@ -48,7 +48,7 @@ var DefaultConfig = BuildkitdConfig{
 //  does not have a default marshaler
 //  -----
 //   # buildkit.toml
-//   [debug]
+//   [log]
 //     level = "debug"
 //
 //   [worker.oci]
@@ -61,11 +61,21 @@ var DefaultConfig = BuildkitdConfig{
 //     mirrors = ["mirror1", "mirror2"]
 
 type BuildkitdConfig struct {
+	// Debug and Trace are the top-level options that buildkitd v0.34 deprecates in favor
+	// of Log.Level; it logs a warning at startup when either is true. Set Log instead.
 	Debug    bool                      `toml:"debug"`
 	Trace    bool                      `toml:"trace"`
+	Log      *LogConfig                `toml:"log,omitempty"`
 	Worker   *WorkerConfig             `toml:"worker,omitempty"`
 	Registry map[string]RegistryConfig `toml:"registry,omitempty"`
 	GRPC     *GRPCConfig               `toml:"grpc,omitempty"`
+}
+
+// LogConfig is the [log] section of buildkitd.toml. Level accepts the logrus level
+// names, for example "debug". buildkitd v0.34 and later read it; older daemons
+// ignore it, so they log at their default level.
+type LogConfig struct {
+	Level string `toml:"level,omitempty"`
 }
 
 type GRPCConfig struct {

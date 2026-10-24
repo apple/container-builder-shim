@@ -75,7 +75,13 @@ func NewDefinitionOp(def *pb.Definition) (*DefinitionOp, error) {
 		}
 
 		for dgst, locs := range def.Source.Locations {
+			if locs == nil {
+				return nil, errors.Errorf("invalid nil source locations for vertex %s", dgst)
+			}
 			for _, loc := range locs.Locations {
+				if loc == nil {
+					return nil, errors.Errorf("invalid nil source location for vertex %s", dgst)
+				}
 				if loc.SourceIndex < 0 || int(loc.SourceIndex) >= len(sourceMaps) {
 					return nil, errors.Errorf("failed to find source map with index %d", loc.SourceIndex)
 				}
@@ -90,6 +96,9 @@ func NewDefinitionOp(def *pb.Definition) (*DefinitionOp, error) {
 
 	var index pb.OutputIndex
 	if dgst != "" {
+		if len(ops[dgst].Inputs) == 0 {
+			return nil, errors.New("invalid definition with no inputs on last vertex")
+		}
 		index = pb.OutputIndex(ops[dgst].Inputs[0].Index)
 		dgst = digest.Digest(ops[dgst].Inputs[0].Digest)
 	}
@@ -150,7 +159,7 @@ func (d *DefinitionOp) Validate(context.Context, *Constraints) error {
 	// It is possible for d.index >= len(d.ops[d.dgst]) when depending on scratch
 	// images.
 	if d.index < 0 {
-		return errors.Errorf("invalid definition op with invalid index")
+		return errors.New("invalid definition op with invalid index")
 	}
 
 	return nil
@@ -158,7 +167,7 @@ func (d *DefinitionOp) Validate(context.Context, *Constraints) error {
 
 func (d *DefinitionOp) Marshal(ctx context.Context, c *Constraints) (digest.Digest, []byte, *pb.OpMetadata, []*SourceLocation, error) {
 	if d.dgst == "" {
-		return "", nil, nil, nil, errors.Errorf("cannot marshal empty definition op")
+		return "", nil, nil, nil, errors.New("cannot marshal empty definition op")
 	}
 
 	if err := d.Validate(ctx, c); err != nil {
