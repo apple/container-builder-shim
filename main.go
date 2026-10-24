@@ -116,7 +116,7 @@ var app = &cobra.Command{
 				config.Registry[key] = rc
 			}
 			if debug {
-				config.Debug = true
+				config.Log = &buildkit.LogConfig{Level: "debug"}
 				config.GRPC.DebugAddress = "0.0.0.0:10001"
 			}
 			runcPath, err := exec.LookPath("buildkit-runc")
