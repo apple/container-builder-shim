@@ -49,7 +49,7 @@ func NewFileOp(s State, action *FileAction, c Constraints) *FileOp {
 }
 
 // CopyInput is either llb.State or *FileActionWithState
-// It is used by [Copy] to to specify the source of the copy operation.
+// It is used by [Copy] to specify the source of the copy operation.
 type CopyInput interface {
 	isFileOpCopyInput()
 }
@@ -242,6 +242,10 @@ func WithUser(name string) ChownOption {
 				opt.User = &UserOpt{UID: uid}
 			}
 		case 1:
+			// An omitted group uses the same default as a user without a colon.
+			if v == "" {
+				continue
+			}
 			gid, err := parseUID(v)
 			if err != nil {
 				opt.Group = &UserOpt{Name: v}
@@ -703,7 +707,7 @@ func (f *FileOp) Validate(context.Context, *Constraints) error {
 		return nil
 	}
 	if f.action == nil {
-		return errors.Errorf("action is required")
+		return errors.New("action is required")
 	}
 	f.isValidated = true
 	return nil
@@ -805,7 +809,7 @@ func (ms *marshalState) add(fa *FileAction, c *Constraints) (*fileActionState, e
 			}
 			st.input2Relative = &src.target
 		} else {
-			return nil, errors.Errorf("invalid empty source for copy")
+			return nil, errors.New("invalid empty source for copy")
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -13,7 +14,7 @@ import (
 
 // Caller can invoke requests on the session
 type Caller interface {
-	Context() context.Context
+	Context(context.Context) context.Context
 	Supports(method string) bool
 	Conn() *grpc.ClientConn
 	SharedKey() string
@@ -105,9 +106,9 @@ func (sm *Manager) handleConn(ctx context.Context, conn net.Conn, opts map[strin
 
 	h := http.Header(opts)
 	id := h.Get(headerSessionID)
-	sharedKey := h.Get(headerSessionSharedKey)
+	sharedKey := decodeHeaderValue(h.Get(headerSessionSharedKey), headerValueIsEncoded(h, headerSessionSharedKeyEncoded))
 
-	ctx, cc, err := grpcClientConn(ctx, conn)
+	ctx, cc, err := grpcClientConn(ctx, conn, opts)
 	if err != nil {
 		sm.mu.Unlock()
 		return err
@@ -190,8 +191,8 @@ func (sm *Manager) Get(ctx context.Context, id string, noWait bool) (Caller, err
 	return c, nil
 }
 
-func (c *client) Context() context.Context {
-	return c.context()
+func (c *client) Context(ctx context.Context) context.Context {
+	return contextWithCaller(ctx, c.context())
 }
 
 func (c *client) SharedKey() string {
@@ -212,4 +213,13 @@ func canonicalHeaders(in map[string][]string) map[string][]string {
 		out[http.CanonicalHeaderKey(k)] = in[k]
 	}
 	return out
+}
+
+func headerValueIsEncoded(h http.Header, key string) bool {
+	v := h.Get(key)
+	if v == "" {
+		return false
+	}
+	encoded, _ := strconv.ParseBool(v)
+	return encoded
 }

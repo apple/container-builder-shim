@@ -141,7 +141,7 @@ func (nc *NamedContext) load(ctx context.Context, count int) (*llb.State, *docke
 		}
 		return &st, &img, nil
 	case "git":
-		st, ok, err := DetectGitContext(nc.input, nil)
+		st, ok, err := DetectGitContext(nc.input, nil, gitAdviceOpts(nc.bc.GitAdvice)...)
 		if !ok {
 			return nil, nil, errors.Errorf("invalid git context %s", nc.input)
 		}
@@ -150,15 +150,15 @@ func (nc *NamedContext) load(ctx context.Context, count int) (*llb.State, *docke
 		}
 		return st, nil, nil
 	case "http", "https":
-		st, ok, err := DetectGitContext(nc.input, nil)
-		if !ok {
-			httpst := llb.HTTP(nc.input, llb.WithCustomName("[context "+nc.nameWithPlatform+"] "+nc.input))
-			st = &httpst
+		st, ok, err := DetectGitContext(nc.input, nil, gitAdviceOpts(nc.bc.GitAdvice)...)
+		if ok {
+			if err != nil {
+				return nil, nil, err
+			}
+			return st, nil, nil
 		}
-		if err != nil {
-			return nil, nil, err
-		}
-		return st, nil, nil
+		httpst := llb.HTTP(nc.input, llb.Filename("context"), llb.WithCustomName("[context "+nc.nameWithPlatform+"] "+nc.input))
+		return &httpst, nil, nil
 	case "oci-layout":
 		refSpec := strings.TrimPrefix(vv[1], "//")
 		ref, err := reference.Parse(refSpec)
@@ -252,10 +252,12 @@ func (nc *NamedContext) load(ctx context.Context, count int) (*llb.State, *docke
 		}
 		var excludes []string
 		if !opt.NoDockerignore {
-			dt, _ := ref.ReadFile(ctx, client.ReadRequest{
-				Filename: DefaultDockerignoreName,
-			}) // error ignored
-
+			// a missing ignore file is not an error, but an oversized one
+			// must not be silently skipped
+			dt, err := ReadFile(ctx, ref, DefaultDockerignoreName)
+			if isFileTooLarge(err) {
+				return nil, nil, err
+			}
 			if len(dt) != 0 {
 				excludes, err = ignorefile.ReadAll(bytes.NewBuffer(dt))
 				if err != nil {
