@@ -112,15 +112,7 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 		Id:        id,
 		Direction: api.TransferDirection_OUTOF,
 		Source:    &f.root,
-		Metadata: map[string]string{
-			"os":               "linux",
-			"stage":            "fssync",
-			"method":           "Walk",
-			"dir-name":         walkMeta.DirName,
-			"include-patterns": walkMeta.IncludePatterns,
-			"followpaths":      followPaths,
-			"mode":             string(walkMeta.Mode),
-		},
+		Metadata:  walkRequestMetadata(walkMeta, followPaths),
 	}
 	if err := f.proxy.Send(&api.ServerStream{
 		BuildId: id,
@@ -167,6 +159,35 @@ func effectiveFollowPaths(fromBuildKit string) string {
 	return fromBuildKit
 }
 
+// walkRequestMetadata returns the metadata of the Walk request sent to the host.
+//
+// The exclude patterns are forwarded so the host can skip what .dockerignore
+// excludes instead of reading and sending it, only for the shim to drop it
+// after unpacking. Each pattern is query-escaped and the key is marked as
+// encoded, so a pattern that contains a comma survives the comma-joined value.
+// The shim still applies the exact filter itself; the host only prunes paths
+// that are certainly excluded.
+func walkRequestMetadata(walkMeta *WalkMetadata, followPaths string) map[string]string {
+	md := map[string]string{
+		"os":               "linux",
+		"stage":            "fssync",
+		"method":           "Walk",
+		"dir-name":         walkMeta.DirName,
+		"include-patterns": walkMeta.IncludePatterns,
+		"followpaths":      followPaths,
+		"mode":             string(walkMeta.Mode),
+	}
+	if len(walkMeta.ExcludePatternList) > 0 {
+		escaped := make([]string, len(walkMeta.ExcludePatternList))
+		for i, p := range walkMeta.ExcludePatternList {
+			escaped[i] = url.QueryEscape(p)
+		}
+		md["exclude-patterns"] = strings.Join(escaped, ",")
+		md["exclude-patterns-encoded"] = "1"
+	}
+	return md
+}
+
 // RawFileInfo is the wire‑format for Walk (json mode).
 type RawFileInfo struct {
 	Name    string `json:"name"`
@@ -182,9 +203,12 @@ type RawFileInfo struct {
 type WalkMetadata struct {
 	IncludePatterns  string
 	ExcludedPatterns string
-	FollowPaths      string
-	DirName          string
-	Mode             TransferMode
+	// ExcludePatternList holds the decoded exclude patterns one per entry, as
+	// BuildKit sent them, so they can be forwarded without comma ambiguity.
+	ExcludePatternList []string
+	FollowPaths        string
+	DirName            string
+	Mode               TransferMode
 }
 
 func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
@@ -194,9 +218,10 @@ func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
 		if md.IncludePatterns, err = metadataValue(m, "include-patterns"); err != nil {
 			return nil, err
 		}
-		if md.ExcludedPatterns, err = metadataValue(m, "exclude-patterns"); err != nil {
+		if md.ExcludePatternList, err = metadataValues(m, "exclude-patterns"); err != nil {
 			return nil, err
 		}
+		md.ExcludedPatterns = strings.Join(md.ExcludePatternList, ",")
 		if md.FollowPaths, err = metadataValue(m, "followpaths"); err != nil {
 			return nil, err
 		}
@@ -224,24 +249,34 @@ func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
 // than being used as-is, since an undecoded exclude pattern would silently
 // match nothing.
 func metadataValue(m metadata.MD, key string) (string, error) {
+	values, err := metadataValues(m, key)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(values, ","), nil
+}
+
+// metadataValues returns the values of key, unescaped as metadataValue
+// describes, without joining them.
+func metadataValues(m metadata.MD, key string) ([]string, error) {
 	values := m[key]
 	encoded := false
 	if flag := m[key+"-encoded"]; len(flag) > 0 {
 		var err error
 		if encoded, err = strconv.ParseBool(flag[0]); err != nil {
-			return "", fmt.Errorf("invalid %s-encoded metadata: %w", key, err)
+			return nil, fmt.Errorf("invalid %s-encoded metadata: %w", key, err)
 		}
 	}
 	if !encoded {
-		return strings.Join(values, ","), nil
+		return values, nil
 	}
 	decoded := make([]string, len(values))
 	for i, v := range values {
 		d, err := url.QueryUnescape(v)
 		if err != nil {
-			return "", fmt.Errorf("failed to decode %s metadata: %w", key, err)
+			return nil, fmt.Errorf("failed to decode %s metadata: %w", key, err)
 		}
 		decoded[i] = d
 	}
-	return strings.Join(decoded, ","), nil
+	return decoded, nil
 }
