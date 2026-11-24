@@ -257,3 +257,47 @@ func TestEffectiveFollowPaths(t *testing.T) {
 		})
 	}
 }
+
+// The host can only skip ignored files if it gets the exclude patterns, one
+// pattern per comma-separated value even when a pattern contains a comma.
+func TestWalkRequestMetadata_ForwardsExcludePatterns(t *testing.T) {
+	md := metadata.MD{"exclude-patterns-encoded": {"1"}}
+	for _, e := range []string{"target", "a,b", "report-日本語.txt", "!keep me"} {
+		md["exclude-patterns"] = append(md["exclude-patterns"], url.QueryEscape(e))
+	}
+	walkMeta, err := unmarshalWalkMetadata(metadata.NewIncomingContext(context.Background(), md))
+	if err != nil {
+		t.Fatalf("unmarshalWalkMetadata: %v", err)
+	}
+
+	got := walkRequestMetadata(walkMeta, ".")
+
+	if got["exclude-patterns-encoded"] != "1" {
+		t.Errorf("exclude-patterns-encoded = %q, want %q", got["exclude-patterns-encoded"], "1")
+	}
+	var decoded []string
+	for _, v := range strings.Split(got["exclude-patterns"], ",") {
+		d, err := url.QueryUnescape(v)
+		if err != nil {
+			t.Fatalf("QueryUnescape(%q): %v", v, err)
+		}
+		decoded = append(decoded, d)
+	}
+	want := []string{"target", "a,b", "report-日本語.txt", "!keep me"}
+	if strings.Join(decoded, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("forwarded exclude patterns = %q, want %q", decoded, want)
+	}
+	if got["followpaths"] != "." || got["method"] != "Walk" {
+		t.Errorf("unexpected base metadata: %v", got)
+	}
+}
+
+func TestWalkRequestMetadata_OmitsEmptyExcludePatterns(t *testing.T) {
+	got := walkRequestMetadata(&WalkMetadata{Mode: ModeTAR}, ".")
+	if _, ok := got["exclude-patterns"]; ok {
+		t.Errorf("exclude-patterns present without patterns: %v", got)
+	}
+	if _, ok := got["exclude-patterns-encoded"]; ok {
+		t.Errorf("exclude-patterns-encoded present without patterns: %v", got)
+	}
+}
